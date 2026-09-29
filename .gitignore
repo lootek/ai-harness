@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+.leak-patterns.local
+.curl-post-allow.local
+.venv/

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# pre-push — last line of defense before this PUBLIC repo leaves the machine.
+#
+#   1. full leak scan over all tracked files (scripts/leak-scan.sh)
+#   2. repo-local identity must be the personal one
+#
+# Two-machine hazard: another machine sharing this repo sometimes has a
+# global git identity set to an employer email. If that box pushes here, the
+# employer name ends up in the public history. This gate fails the push
+# unless user.email resolves to the personal address, so the identity must
+# be pinned repo-locally on every clone:
+#
+#     git config user.name  "Piotr Lucinski"
+#     git config user.email "lootek87@gmail.com"
+
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+expected="lootek87@gmail.com"
+actual="$(git -C "$REPO" config user.email || true)"
+
+if [[ "$actual" != "$expected" ]]; then
+  printf 'pre-push: user.email is %s, expected %s\n' "${actual:-<unset>}" "$expected" >&2
+  printf 'pre-push: two-machine hazard — the other machine may push with an\n' >&2
+  printf 'pre-push: employer identity, leaking it into this PUBLIC repo.\n' >&2
+  printf "pre-push: fix with: git config user.email '%s'\n" "$expected" >&2
+  exit 1
+fi
+
+"$REPO/scripts/leak-scan.sh"

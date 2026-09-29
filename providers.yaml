@@ -1,0 +1,368 @@
+# providers.yaml — read by ai.py (co-located: repo root or ~/.ai-harness/).
+#
+# Schema: a provider-level `token` (literal OR path to a file holding only the
+# token, e.g. ~/.secrets/openrouter — resolved once, whitespace stripped) plus
+# a `clis` map; a cli block may carry its own `token:` overriding it.
+#
+#   clis.claude:   base_url, token?, api_key?, native, max_output_tokens,
+#                  route_slots_to_model, env, listcmd
+#   clis.codex:    base_url, env_key, model_transform?, toml?, listcmd. ai.py
+#                  exports <env_key>=<token> and generates
+#                  $CODEX_HOME/ai-<provider>.config.toml
+#                  (model_provider = "ai-<provider>"); codex talks
+#                  the Responses wire to base_url. `toml` is a map of extra
+#                  profile keys (dotted path -> scalar) for provider quirks.
+#                  Hand edits to the profile are overwritten whenever this
+#                  block changes.
+#   clis.opencode: provider_id, env_key?, config?, listcmd. token exported as
+#                  <env_key>; a `config` dict is serialized to JSON into
+#                  OPENCODE_CONFIG_CONTENT. No env_key = OAuth provider
+#                  (anthropic) — opencode's stored credentials are used.
+#
+# max_output_tokens (claude only): empty by default → claude code applies its
+#   per-model default (the CLI clamps explicit values anyway). Set to an int —
+#   e.g. for a local model with no CLI per-model table entry — and the wrapper
+#   exports CLAUDE_CODE_MAX_OUTPUT_TOKENS=<value>. Empty/absent → unset.
+#
+# api_key (claude only): optional. Most gateways authenticate off
+#   ANTHROPIC_AUTH_TOKEN alone and want ANTHROPIC_API_KEY empty (the default).
+#   Set to "auth_token" to reuse the resolved token, or give it its own
+#   literal/path. The HF router documents setting both.
+#
+# route_slots_to_model (claude only): optional bool. claude code fills internal
+#   slots (ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL,
+#   CLAUDE_CODE_SUBAGENT_MODEL) with Anthropic model names that do not resolve
+#   on a BYO provider. Set true to point every slot at whatever model you
+#   picked — right when the catalogue is large and no single model is the
+#   obvious default. Pin them explicitly in `env:` instead when one model
+#   should always serve a slot (z.ai does this); explicit `env:` entries win.
+#
+# env (claude only): optional map of extra env vars the wrapper exports for
+#   that provider. Values are literal strings — a leading ~ or / is NOT treated
+#   as a file path here (only token does that). Exported after the ANTHROPIC_*
+#   clear, so keys starting with ANTHROPIC_ are safe.
+
+providers:
+  anthropic:
+    clis:
+      claude:
+        native: true
+        max_output_tokens:
+        # Three sources, in order, each falling through to the next:
+        #
+        # 1. ~/.secrets/anthropic — if present, an explicit ask to hit the live
+        #    API instead of anything cached locally.
+        #
+        # 2. ~/.claude/cache/model-catalog/ — the claude code binary's own model
+        #    catalogue, populated by `claude`/`/login` itself (signed, versioned,
+        #    fetchedAt/staleAt). published-floor.json maps the current content
+        #    hash to the live published-<hash>.json; the picker reads
+        #    .document.surfaces.cc.model_selector_config[0].models[].id. This is
+        #    what caught claude-opus-5-5 missing from the old hardcoded list below
+        #    (added 2026-09) — prefer it, it can't go stale the way a hand
+        #    maintained list can. Internal/undocumented format: no public schema
+        #    promise, may change on a claude code update, and does not exist until
+        #    `claude` has run once.
+        #
+        # 3. Hardcoded fallback — pre-login, or if the cache format ever breaks.
+        #    Refreshed Sept 2026. No [1m] variants: measured on claude code 2.1.281
+        #    (`claude -p --output-format json`, modelUsage.contextWindow), every
+        #    model here reports 1,000,000 with or without the suffix except
+        #    claude-haiku-4-5-20251001 (200,000, which the suffix cannot raise).
+        #    That includes claude-opus-5-5 and claude-opus-4-8, so the 200k-native +
+        #    [1m] scheme reverse-engineered from 2.1.212 no longer applies to the
+        #    anthropic provider. opus-5-5 needs claude code >= 2.1.280 (its
+        #    min_claude_code_version in the catalog): older builds do not know the
+        #    model and stay at 200k regardless of the suffix. The [1m] trick is
+        #    still what unlocks 1M for non-claude model names on the other providers
+        #    below (ollama, zai, huggingface).
+        #
+        # opus/sonnet 4.7 and older are excluded from both source #2 and #3 —
+        # superseded by the 5-series and no longer worth surfacing in the picker.
+        # haiku-4-5 is kept regardless of its 4.5 version number: it is the only
+        # fast/cheap tier on offer, not a legacy duplicate of a newer model.
+        # $ANTHROPIC_DROP filters both dynamic and hardcoded output identically.
+        listcmd: |
+          ANTHROPIC_DROP='^claude-(opus|sonnet)-4-[0-7]($|-)'
+          if [[ -f ~/.secrets/anthropic ]]; then
+            curl -s https://api.anthropic.com/v1/models \
+              -H "anthropic-version: 2023-06-01" \
+              -H "x-api-key: $(cat ~/.secrets/anthropic)" \
+            | jq -r '.data[].id' 2>/dev/null | grep -vE "$ANTHROPIC_DROP"
+          elif cat=~/.claude/cache/model-catalog; \
+               hash=$(jq -r '.sources | keys[0] // empty' "$cat/published-floor.json" 2>/dev/null); \
+               [[ -n "$hash" && -f "$cat/published-$hash.json" ]] && \
+               ids=$(jq -r '.document.surfaces.cc.model_selector_config[0].models[]?.id' \
+                     "$cat/published-$hash.json" 2>/dev/null) && \
+               [[ -n "$ids" ]]; then
+            printf '%s\n' "$ids" | grep -vE "$ANTHROPIC_DROP"
+          else
+            for m in \
+              claude-fable-5-1 \
+              claude-fable-5 \
+              claude-opus-5-5 \
+              claude-opus-5 \
+              claude-opus-4-8 \
+              claude-sonnet-5 \
+              claude-haiku-4-5-20251001
+            do
+              printf '%s\n' "$m"
+            done
+          fi
+      opencode:
+        # OAuth via `opencode auth login` — no env_key/token to export.
+        provider_id: anthropic
+        listcmd: opencode models anthropic
+
+  ollama:
+    clis:
+      claude:
+        base_url: http://localhost:11434
+        token: ollama
+        max_output_tokens:
+        # claude code 2.1.212 honors the [1m] suffix for ANY provider, not just
+        # api.anthropic.com — NPc()'s first branch is ub(e)=/\[1m\]/i.test(model),
+        # ungated by firstParty. The suffix grants a 1M context window and is
+        # stripped (oi()->Bs()) before the ollama API call, so the backend sees
+        # the plain runnable name. Issue #46416 was closed NOT_PLANNED but the
+        # suffix path works regardless in 2.1.212+.
+        # Cloud models run as <name>:cloud. ollama.com/api/tags now returns non-zero
+        # size for cloud entries too, so the old size==0 heuristic emitted broken
+        # plain names (e.g. `kimi-k3` → "model not found"); append :cloud to every
+        # catalogue entry instead. Local `ollama list` already gives correct names.
+        # 1M-capable cloud models get a [1m] variant (glm-5.2: 1,000,000;
+        # kimi-k3: 1,048,576 — both confirmed via ollama /api/show).
+        listcmd: |
+          {
+            ollama list 2>/dev/null | awk 'NR>1 {print $1}'
+            curl -s https://ollama.com/api/tags 2>/dev/null \
+              | jq -r '.models[].name' 2>/dev/null \
+              | sed 's/$/:cloud/'
+          } | sort -u | awk '
+            { print }
+            /^(glm-5\.2|kimi-k3):cloud$/ { print $0 "[1m]" }
+          '
+      opencode:
+        # Local ollama — no key.
+        provider_id: ollama
+        listcmd: opencode models ollama
+
+  openrouter:
+    token: ~/.secrets/openrouter
+    clis:
+      claude:
+        base_url: https://openrouter.ai/api
+        max_output_tokens:
+        listcmd: 'curl -s https://openrouter.ai/api/v1/models | jq -r ".data[].id" | grep -i anthropic'
+      codex:
+        base_url: https://openrouter.ai/api/v1
+        env_key: OPENROUTER_API_KEY
+        # Full catalog (the claude block filters to anthropic) — fzf handles
+        # the size.
+        listcmd: 'curl -s https://openrouter.ai/api/v1/models | jq -r ".data[].id"'
+      opencode:
+        provider_id: openrouter
+        env_key: OPENROUTER_API_KEY
+        listcmd: 'opencode models openrouter'
+
+  poe:
+    token: ~/.secrets/poe
+    clis:
+      claude:
+        base_url: https://api.poe.com
+        max_output_tokens:
+        listcmd: 'curl -s https://api.poe.com/v1/models | jq -r ".data[].id" | grep -iE "claude-(opus|sonnet|haiku)"'
+      codex:
+        base_url: https://api.poe.com/v1
+        env_key: POE_API_KEY
+        listcmd: 'curl -s https://api.poe.com/v1/models -H "Authorization: Bearer $(cat ~/.secrets/poe)" | jq -r ".data[].id"'
+      opencode:
+        provider_id: poe
+        env_key: POE_API_KEY
+        listcmd: 'opencode models poe'
+
+  xai:
+    token: ~/.secrets/xai
+    clis:
+      claude:
+        # xAI (Grok) — exposes an Anthropic-compatible /v1/messages alongside its
+        # OpenAI-style routes, so claude code talks to it directly.
+        # https://docs.x.ai/docs/api-reference   (key from https://console.x.ai)
+        #
+        # BILLING: an API key meters against pay-as-you-go API credits. A SuperGrok
+        # or X Premium+ subscription is a *consumer* entitlement on the
+        # accounts.x.ai OAuth surface — claude code has no xAI OAuth flow and can
+        # only present a bearer token, so the subscription does not pay for this.
+        # Confirmed against the live API: a valid key with no credits authenticates
+        # but every call (including /v1/models) returns
+        #   403 permission-denied "team doesn't have any credits or licenses yet"
+        # so the model picker stays empty until credits are bought at console.x.ai.
+        # A wrong key gives "Incorrect API key" instead — the two are easy to tell
+        # apart when debugging.
+        #
+        # Auth: verified against the live endpoint — both `Authorization: Bearer`
+        # and `x-api-key` are accepted, so ANTHROPIC_AUTH_TOKEN alone is enough and
+        # no api_key entry is needed here.
+        base_url: https://api.x.ai
+        max_output_tokens:
+        # Point claude code's opus/sonnet/haiku/subagent slots at the picked model;
+        # the Anthropic names they default to don't exist here.
+        route_slots_to_model: true
+        # No [1m] variants: unlike ollama/z.ai there is no confirmed 1M-context
+        # Grok model, and the suffix would claim a window the backend may not have.
+        # /v1/models needs the key, so the picker is empty without it — apply_env
+        # already fails loudly ("token file not found") before we get that far.
+        listcmd: |
+          curl -s https://api.x.ai/v1/models \
+            -H "Authorization: Bearer $(cat ~/.secrets/xai)" \
+          | jq -r '.data[].id' 2>/dev/null | sort
+      codex:
+        base_url: https://api.x.ai/v1
+        env_key: XAI_API_KEY
+        listcmd: |
+          curl -s https://api.x.ai/v1/models \
+            -H "Authorization: Bearer $(cat ~/.secrets/xai)" \
+          | jq -r '.data[].id' 2>/dev/null | sort
+      opencode:
+        provider_id: xai
+        env_key: XAI_API_KEY
+        listcmd: 'opencode models xai'
+
+  zai:
+    # Z.AI (Zhipu) — same key serves the anthropic-wire endpoint (claude),
+    # the OpenAI-compatible /api/v1 (codex), and the coding plan (opencode).
+    token: ~/.secrets/z.ai
+    clis:
+      claude:
+        # https://docs.z.ai/devpack/tool/claude  (api key in ~/.secrets/z.ai)
+        # The [1m] suffix works for any provider in claude code 2.1.212+ (see
+        # ollama note above); glm-5.2[1m] is confirmed 1M by z.ai's own config
+        # guide.
+        base_url: https://api.z.ai/api/anthropic
+        max_output_tokens:
+        env:
+          # Route claude code's internal background slots (title gen, etc.) to
+          # z.ai instead of api.anthropic.com (which has no key here).
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: glm-4.7
+          ANTHROPIC_DEFAULT_SONNET_MODEL: glm-5.2[1m]
+          ANTHROPIC_DEFAULT_OPUS_MODEL: glm-5.2[1m]
+          # 1M-context generations are slow; raise the per-request timeout.
+          API_TIMEOUT_MS: "3000000"
+          # Stop upgrade-check/telemetry pings to api.anthropic.com.
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        listcmd: |
+          curl -s https://api.z.ai/api/anthropic/v1/models \
+            -H "Authorization: Bearer $(cat ~/.secrets/z.ai)" \
+            -H "anthropic-version: 2023-06-01" \
+          | jq -r '.data[].id' 2>/dev/null \
+          | awk '{ print } /^glm-5\.[23]$/ { print $0 "[1m]" }'
+      codex:
+        # ⚠ pairing: codex speaks the Responses wire against /api/v1 — NOT the
+        # documented /api/paas/v4 chat-completions surface. Verified live
+        # 2026-09-29 (codex 0.157.1): glm-5.3 exec answers, tools included,
+        # no protocol errors. /api/v1/models answers {"models":[{slug,
+        # visibility}]} (not the {data:[{id}]} shape), listing only
+        # visibility=="list" slugs.
+        base_url: https://api.z.ai/api/v1
+        env_key: ZAI_API_KEY
+        listcmd: 'curl -s https://api.z.ai/api/v1/models -H "Authorization: Bearer $(cat ~/.secrets/z.ai)" | jq -r ".models[] | select((.visibility // \"list\") == \"list\") | .slug"'
+      opencode:
+        provider_id: zai-coding-plan
+        # TRAP: opencode's zai-coding-plan provider reads ZHIPU_API_KEY — NOT
+        # ZAI_API_KEY — even though it is the same z.ai key from ~/.secrets/z.ai.
+        env_key: ZHIPU_API_KEY
+        # The coding plan lives at a different baseURL than the plain API;
+        # OPENCODE_CONFIG_CONTENT (inline runtime override) redirects it.
+        config:
+          provider:
+            zai-coding-plan:
+              options:
+                baseURL: "https://api.z.ai/api/coding/paas/v4"
+        listcmd: 'opencode models zai-coding-plan'
+
+  huggingface:
+    # Hugging Face Inference Providers — an Anthropic-compatible router in front
+    # of ~100 open models across many inference backends.
+    # https://huggingface.co/docs/inference-providers/integrations/claude-code
+    #
+    # Token needs the "Make calls to Inference Providers" permission:
+    #   https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write&tokenType=fineGrained
+    # Store it like every other provider here:
+    #   printf '%s' hf_xxx > ~/.secrets/huggingface && chmod 600 ~/.secrets/huggingface
+    token: ~/.secrets/huggingface
+    # NO codex block: the router serves chat-completions only, and codex talks
+    # the Responses wire — there is nothing to point it at.
+    clis:
+      claude:
+        base_url: https://router.huggingface.co
+        # HF's docs export ANTHROPIC_API_KEY as well as ANTHROPIC_AUTH_TOKEN.
+        api_key: auth_token
+        max_output_tokens:
+        # No single model is the natural default here, so aim claude code's opus/
+        # sonnet/haiku/subagent slots at whatever you picked rather than hardcoding.
+        route_slots_to_model: true
+        # env:
+        #   # Bill inference to an org you belong to (Team/Enterprise only).
+        #   ANTHROPIC_CUSTOM_HEADERS: "X-HF-Bill-To: your-org-name"
+        #
+        # Model id format is owner/Model with an optional routing suffix:
+        #   owner/Model                 default :fastest policy (highest throughput,
+        #                               automatic failover)
+        #   owner/Model:cheapest        cheapest live provider
+        #   owner/Model:fireworks-ai    pinned provider, deterministic routing
+        # The catalogue is unauthenticated, so the picker works before you have a
+        # token. Only tool-capable live providers are listed — claude code is
+        # useless against a model that cannot call tools.
+        # [1m] variants (see the ollama note above) are emitted per pinned provider
+        # that reports >=1M context, and on the bare id only when *every* live
+        # provider clears 1M — otherwise dynamic routing could land you on a
+        # smaller context than the suffix claims.
+        listcmd: |
+          curl -s https://router.huggingface.co/v1/models \
+          | jq -r '
+              .data[]
+              | .id as $id
+              | [.providers[] | select(.status == "live" and .supports_tools)] as $ps
+              | select($ps | length > 0)
+              | (
+                  [$id]
+                  + (if ($ps | all(.context_length != null and .context_length >= 1000000))
+                     then [$id + "[1m]"] else [] end)
+                  + [$id + ":cheapest"]
+                  + ($ps | map($id + ":" + .provider))
+                  + ($ps | map(select(.context_length != null and .context_length >= 1000000)
+                               | $id + ":" + .provider + "[1m]"))
+                )[]
+            ' 2>/dev/null
+      opencode:
+        provider_id: huggingface
+        env_key: HF_TOKEN
+        listcmd: 'opencode models huggingface'
+
+  nvidia:
+    # NVIDIA NIM — OpenAI-compatible /v1 on integrate.api.nvidia.com.
+    token: ~/.secrets/nvidia
+    # NO claude block: NVIDIA does not serve the Anthropic wire (/v1/messages),
+    # so claude code has nothing to talk to. Deliberate — codex/opencode only.
+    clis:
+      codex:
+        base_url: https://integrate.api.nvidia.com/v1
+        env_key: NVIDIA_API_KEY
+        # NVIDIA's /v1/responses rejects two tool types codex 0.157 sends by
+        # default: the multi_agent_v1 "namespace" tool (400 "Input should be
+        # 'function'...") and the built-in web_search tool (400 "tool type
+        # web_search not supported"). Plain function tools pass — verified
+        # live 2026-09-29. Kill both via the generated profile. NOTE: the
+        # web_search toggle is TOP-LEVEL web_search = "disabled";
+        # tools.web_search only *configures* the tool and does not remove it.
+        toml:
+          web_search: disabled
+          features.multi_agent: false
+        # Free tier can take 45-240s to first byte; the catalog itself is fast.
+        # grep drops the non-chat models (embeddings, vision, Riva speech,
+        # NeMo guardrails, etc.) that would drown the fzf list.
+        listcmd: 'curl -s https://integrate.api.nvidia.com/v1/models -H "Authorization: Bearer $(cat ~/.secrets/nvidia)" | jq -r ".data[].id" | grep -viE "embed|riva|parse|guard|reward|nvclip|vila|deplot|kosmos|fuyu|arctic|starcoder|codegemma|recurrentgemma|diffusiongemma|glimmer|synthetic|neva|translate|calibration|safety|omni|vl-|vision"'
+      opencode:
+        provider_id: nvidia
+        env_key: NVIDIA_API_KEY
+        listcmd: 'opencode models nvidia'

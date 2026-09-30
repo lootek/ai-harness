@@ -19,9 +19,9 @@ shared across the CLIs.
     adapters/codex/     codex hook wiring: ASK→deny envelope adapter +
                         history adapters (spawn the engines)
     adapters/opencode/  opencode plugins: engine shim + history
-    skills/             portable skills                         (planned)
-    plugins/            plugins                                 (planned)
-    agents/             subagent definitions                    (planned)
+    skills/             portable skills
+    plugins/            claude plugin bundles (lootek marketplace)
+    agents/             subagent definitions
 
 ## Usage
 
@@ -42,7 +42,9 @@ after `--` (or any non-picker flag) goes to the CLI verbatim.
 Migration in progress from lootek/claude-code-harness (2026-09-29).
 Picker (ai/air) is live; safety hooks are live on claude/codex/opencode;
 command/prompt history is live on claude/opencode (codex awaits its one-time
-hook trust). Skills/plugins/agents deploy comes at cutover.
+hook trust). Skills, agents, and the plugin marketplace install via
+install.sh; the marketplace source flips from local checkout to github at
+cutover, when the repo goes public.
 
 ## Safety
 
@@ -109,6 +111,33 @@ gate only sees CLI-issued commands), or refine the rule in
 engine copies are locked with `chflags uchg`; unlock with
 `chflags nouchg <path>` before editing and re-apply afterwards.
 
+## Plugins
+
+Four Claude Code plugin bundles, installed from this repo via the `lootek`
+marketplace (`.claude-plugin/marketplace.json` at the repo root):
+
+    imagine         image generation via OpenRouter (list models, generate)
+    mr-monitor      watch a GitLab MR pipeline + review threads until green
+    mr-review       review a GitLab MR, post inline comments on approval
+    review-board    multi-persona review board (18 reviewer subagents)
+
+Each bundle under `plugins/<name>/` carries `.claude-plugin/plugin.json`
+plus a byte-exact mirror of its skill from `skills/<name>/` (and `agents/`
+for review-board); `scripts/sync-skills.sh --check` gates the drift.
+
+`install.sh` (`--cli claude`) registers the marketplace and installs all
+four as `<name>@lootek`. While this repo is private, the github add
+(`claude plugin marketplace add lootek/ai-harness`) fails, so the script
+falls back to registering the local checkout as a directory-source
+marketplace — same name, same plugins. The github source activates at the
+public flip (cutover: `claude plugin marketplace remove lootek && claude
+plugin marketplace add lootek/ai-harness`).
+
+Locked-host note: `claude plugin install` records the plugin in
+`enabledPlugins` inside `~/.claude/settings.json`; install.sh clears and
+re-applies the macOS `uchg` flag around the plugin section (same
+discipline as the hook files).
+
 ## Install
 
     bash install.sh [--cli claude|codex|opencode|all]
@@ -120,7 +149,9 @@ full claude set (engines + history + claude-only) to `~/.claude/hooks/`,
 engines + history engines to `~/.ai-harness/hooks/`, the codex adapters and
 rendered `~/.codex/hooks.json` (merged with an existing file: unknown entries
 preserved, ours replaced), and the opencode plugins to
-`~/.config/opencode/plugins/`.
+`~/.config/opencode/plugins/`. With `--cli claude` (or `all`) it also
+registers the `lootek` plugin marketplace and installs the four plugin
+bundles (see Plugins).
 
 Dev tests: `cd hooks && ~/.ai-harness/.venv/bin/python -m pytest -q tests/`
 (pytest is dev-only — installed into the venv by hand, not via install.sh).

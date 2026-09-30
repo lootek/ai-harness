@@ -1,0 +1,25 @@
+{
+  "name": "lootek",
+  "description": "Claude Code plugins — image generation, GitLab MR review/monitor, multi-persona review board.",
+  "owner": {
+    "name": "lootek"
+  },
+  "plugins": [
+    {
+      "name": "imagine",
+      "source": "./plugins/imagine"
+    },
+    {
+      "name": "mr-monitor",
+      "source": "./plugins/mr-monitor"
+    },
+    {
+      "name": "mr-review",
+      "source": "./plugins/mr-review"
+    },
+    {
+      "name": "review-board",
+      "source": "./plugins/review-board"
+    }
+  ]
+}

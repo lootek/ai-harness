@@ -30,6 +30,16 @@
 #               ~/.config/opencode/agents/ (codex gets the personas bundled
 #               inside skills/review-board/agents/ via the skill-dir copy)
 #
+# Plugins (claude only): registers the `lootek` marketplace from
+# github (lootek/ai-harness) and installs the 4 public bundles. While the
+# repo is private (public flip is the cutover step), the github add fails
+# and the script falls back to registering this checkout as a local
+# directory-source marketplace. Idempotent: a lootek marketplace pointing
+# elsewhere (stale local dir, or the pre-migration lootek/claude-code-harness
+# source) is removed first, plugin installs pinned to a previous marketplace
+# generation are uninstalled and reinstalled from the current source, and
+# ~/.claude/settings.json is unlocked/relocked around installs on uchg hosts.
+#
 # Files protected with the macOS `uchg` (user-immutable) flag are handled with
 # a tight clear -> copy -> re-apply pair so they're never left writable. Files
 # without the flag are copied plainly (the script stays generic).
@@ -248,6 +258,68 @@ if want opencode; then
   for s in "${SKILLS[@]}"; do
     install_skill_dir "$SRC/skills/$s" "$HOME/.config/opencode/skills" "$s"
   done
+fi
+
+# ── plugins: lootek marketplace + the 4 public bundles (claude only) ────────
+# Marketplace source, in preference order: github lootek/ai-harness (works
+# once the repo is public — the cutover step flips it), else this checkout as
+# a directory-source marketplace (the repo root holds
+# .claude-plugin/marketplace.json; plugins live under plugins/<name>). Once
+# either source is registered the section is a no-op; switching a registered
+# local checkout over to github at the public flip is a cutover action
+# (remove + add), not something every install run should attempt — a
+# marketplace remove also uninstalls its plugins.
+#
+# `claude plugin install` records the plugin in enabledPlugins inside
+# ~/.claude/settings.json; on hosts that lock that file with uchg the CLI's
+# atomic rename fails with EPERM and installs silently no-op — clear the flag
+# around this section and re-apply it after (same discipline as hook files).
+PUBLIC_PLUGINS=(imagine mr-monitor mr-review review-board)
+if want claude; then
+  if command -v claude >/dev/null 2>&1; then
+    SETTINGS="$HOME/.claude/settings.json"
+    SETTINGS_LOCKED=0
+    if [ -f "$SETTINGS" ] && has_uchg "$SETTINGS"; then
+      SETTINGS_LOCKED=1
+      chflags nouchg "$SETTINGS"
+    fi
+    echo "Registering lootek marketplace (github: lootek/ai-harness, local fallback)"
+    MKLIST="$(claude plugin marketplace list 2>/dev/null || true)"
+    if printf '%s\n' "$MKLIST" | grep -qF 'Source: GitHub (lootek/ai-harness)' || \
+       printf '%s\n' "$MKLIST" | grep -qF "Source: Directory ($SRC)"; then
+      : # already registered from this repo — nothing to do
+    else
+      # drop any lootek marketplace pointing elsewhere (the pre-migration
+      # github source lootek/claude-code-harness, or a stale local dir) —
+      # note this uninstalls plugins still pinned to that marketplace; the
+      # install loop below re-installs them from the current source
+      claude plugin marketplace remove lootek >/dev/null 2>&1 || true
+      if ! claude plugin marketplace add lootek/ai-harness >/dev/null 2>&1; then
+        # repo still private: register this checkout instead
+        claude plugin marketplace add "$SRC"
+      fi
+    fi
+    for p in "${PUBLIC_PLUGINS[@]}"; do
+      if ! claude plugin install "$p@lootek" >/dev/null 2>&1 && \
+         ! claude plugin update "$p@lootek" >/dev/null 2>&1; then
+        # install pinned to a previous marketplace generation — drop just the
+        # plugin install and re-install from the current source
+        claude plugin uninstall "$p@lootek" >/dev/null 2>&1 || true
+        claude plugin install "$p@lootek" >/dev/null 2>&1 || true
+      fi
+      if claude plugin list 2>/dev/null | grep -qF "$p@lootek"; then
+        echo "  -> $p@lootek"
+      else
+        echo "  !! $p@lootek NOT installed — run: claude plugin install $p@lootek"
+      fi
+    done
+    if [ "$SETTINGS_LOCKED" = 1 ]; then
+      chflags uchg "$SETTINGS"
+      echo "  NOTE: re-applied the lock: chflags uchg $SETTINGS"
+    fi
+  else
+    echo "  (claude CLI not on PATH — skipping marketplace register/install; run manually)"
+  fi
 fi
 
 echo "done. Restart claude/codex/opencode if hooks or plugins changed."

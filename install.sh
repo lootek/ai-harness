@@ -5,12 +5,17 @@
 # (and ~/.zsh-aliases/ai), with timestamped backups of existing targets, and
 # bootstraps the pyyaml venv the wrapper runs on. Idempotent.
 #
-# Safety hooks (--cli claude|codex|opencode|all, default all):
-#   claude    hooks/{safe_command,payload_guard}.py -> ~/.claude/hooks/
-#   codex     engines -> ~/.ai-harness/hooks/, adapter -> ~/.ai-harness/adapters/codex/,
-#             adapters/codex/hooks.json rendered -> ~/.codex/hooks.json
-#             (merged with any existing file: unknown entries preserved, ours replaced)
-#   opencode  engines + adapters/opencode/ai-harness.safe-command.ts
+# Safety + history hooks (--cli claude|codex|opencode|all, default all):
+#   claude    full claude hook set -> ~/.claude/hooks/: engines
+#             {safe_command,payload_guard}.py + history {log_commands,
+#             prompt_history}.py + claude-only {export_session,
+#             flush_stale_dumps}.py + session-env-check.sh
+#   codex     engines + history engines -> ~/.ai-harness/hooks/, adapters
+#             (safe_command, log_commands, prompt_history) ->
+#             ~/.ai-harness/adapters/codex/, adapters/codex/hooks.json
+#             rendered -> ~/.codex/hooks.json (merged with any existing
+#             file: unknown entries preserved, ours replaced)
+#   opencode  engines + adapters/opencode/ai-harness.{safe-command,history}.ts
 #             -> ~/.config/opencode/plugins/
 #
 # Files protected with the macOS `uchg` (user-immutable) flag are handled with
@@ -105,11 +110,15 @@ fi
 # ($AI_SAFE_COMMAND_AUDIT overrides; entries carry each CLI's session id).
 
 ENGINES=(safe_command.py payload_guard.py)
+# history engines: claude runs them directly as PostToolUse/UserPromptSubmit
+# hooks; codex adapters spawn them (same files, byte-identical twins).
+HISTORY_ENGINES=(log_commands.py prompt_history.py)
 
-# claude: engines -> ~/.claude/hooks/ (old backup/uchg discipline)
+# claude: full hook set -> ~/.claude/hooks/ (old backup/uchg discipline)
 if want claude; then
   mkdir -p "$HOME/.claude/hooks"
-  for f in "${ENGINES[@]}"; do
+  for f in "${ENGINES[@]}" "${HISTORY_ENGINES[@]}" \
+           export_session.py flush_stale_dumps.py session-env-check.sh; do
     install_file "$SRC/hooks/$f" "$HOME/.claude/hooks/$f" 755
   done
   # safe_command.py imports payload_guard.py, so both halves of the boundary
@@ -117,28 +126,30 @@ if want claude; then
   echo "  NOTE: re-apply the lock:  chflags uchg $HOME/.claude/hooks/safe_command.py $HOME/.claude/hooks/payload_guard.py"
 fi
 
-# codex + opencode: engines -> $DST/hooks/ (single owner of the rule set)
+# codex + opencode: engines -> $DST/hooks/ (single owner of the rule set;
+# history engines included — the codex adapters spawn them from there)
 if want codex || want opencode; then
   mkdir -p "$DST/hooks"
-  for f in "${ENGINES[@]}"; do
+  for f in "${ENGINES[@]}" "${HISTORY_ENGINES[@]}"; do
     install_file "$SRC/hooks/$f" "$DST/hooks/$f" 755
   done
 fi
 
-# codex: adapter + hooks.json (render template, merge into ~/.codex/hooks.json)
+# codex: adapters + hooks.json (render template, merge into ~/.codex/hooks.json)
 if want codex; then
   mkdir -p "$DST/adapters/codex"
-  install_file "$SRC/adapters/codex/safe_command_codex.py" \
-               "$DST/adapters/codex/safe_command_codex.py" 755
+  for a in safe_command_codex.py log_commands_codex.py prompt_history_codex.py; do
+    install_file "$SRC/adapters/codex/$a" "$DST/adapters/codex/$a" 755
+  done
   CODEX_HOOKS="$HOME/.codex/hooks.json"
   mkdir -p "$HOME/.codex"
   backup_if_exists "$CODEX_HOOKS"
   RENDERED="$(mktemp)"
   sed "s|__AI_HARNESS_HOME__|$DST|g" "$SRC/adapters/codex/hooks.json" > "$RENDERED"
   python3 - "$RENDERED" "$CODEX_HOOKS" <<'PY'
-# Merge our rendered entry into ~/.codex/hooks.json: unknown entries and
+# Merge our rendered entries into ~/.codex/hooks.json: unknown entries and
 # events are preserved verbatim; any previous entry of OURS (matched by the
-# adapter path in its command) is replaced by the new one.
+# ai-harness adapter path in its command) is replaced by the new one.
 import json, sys
 rendered, target = sys.argv[1], sys.argv[2]
 with open(rendered) as f:
@@ -150,7 +161,7 @@ try:
         raise ValueError("not an object")
 except (FileNotFoundError, ValueError, json.JSONDecodeError):
     existing = {}
-MARKER = "ai-harness/adapters/codex/safe_command_codex.py"
+MARKER = "ai-harness/adapters/codex/"
 def is_ours(entry):
     return isinstance(entry, dict) and any(
         MARKER in (h or {}).get("command", "")
@@ -159,9 +170,9 @@ hooks = existing.setdefault("hooks", {})
 if not isinstance(hooks, dict):
     hooks = {}
     existing["hooks"] = hooks
-pre = [e for e in (hooks.get("PreToolUse") or []) if not is_ours(e)]
-pre += ours["hooks"]["PreToolUse"]
-hooks["PreToolUse"] = pre
+for event, entries in ours["hooks"].items():
+    kept = [e for e in (hooks.get(event) or []) if not is_ours(e)]
+    hooks[event] = kept + entries
 with open(target, "w") as f:
     json.dump(existing, f, indent=2)
     f.write("\n")
@@ -169,15 +180,19 @@ PY
   rm -f "$RENDERED"
   echo "  -> $CODEX_HOOKS (merged)"
   echo "  NOTE: codex requires per-definition hook trust — run codex once and"
-  echo "        pick '2. Trust all and continue' (hooks stay skipped until then)."
+  echo "        pick '2. Trust all and continue' (hooks stay skipped until"
+  echo "        then). Needed again after ANY change to this file, including"
+  echo "        this one if the hook commands changed."
   echo "  NOTE: re-apply the lock:  chflags uchg $DST/hooks/safe_command.py $DST/hooks/payload_guard.py"
 fi
 
-# opencode: TS plugin shim -> ~/.config/opencode/plugins/
+# opencode: TS plugin shims -> ~/.config/opencode/plugins/
 if want opencode; then
   mkdir -p "$HOME/.config/opencode/plugins"
   install_file "$SRC/adapters/opencode/ai-harness.safe-command.ts" \
                "$HOME/.config/opencode/plugins/ai-harness.safe-command.ts"
+  install_file "$SRC/adapters/opencode/ai-harness.history.ts" \
+               "$HOME/.config/opencode/plugins/ai-harness.history.ts"
   echo "  NOTE: re-apply the lock:  chflags uchg $DST/hooks/safe_command.py $DST/hooks/payload_guard.py"
 fi
 

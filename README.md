@@ -13,9 +13,12 @@ shared across the CLIs.
     install.sh          deploy picker artifacts to ~/.ai-harness + ~/.zsh-aliases
     populate.sh         capture live picker artifacts back into the repo
     scripts/            repo tooling (leak-scan.sh)
-    hooks/              safety engine (safe_command + payload_guard) + tests
-    adapters/codex/     codex hook wiring + ASK→deny envelope adapter
-    adapters/opencode/  opencode plugin shim for the engine
+    hooks/              engines: safe_command + payload_guard (safety),
+                        log_commands + prompt_history (history), claude-only
+                        export_session/flush_stale_dumps/session-env-check
+    adapters/codex/     codex hook wiring: ASK→deny envelope adapter +
+                        history adapters (spawn the engines)
+    adapters/opencode/  opencode plugins: engine shim + history
     skills/             portable skills                         (planned)
     plugins/            plugins                                 (planned)
     agents/             subagent definitions                    (planned)
@@ -37,8 +40,9 @@ after `--` (or any non-picker flag) goes to the CLI verbatim.
 ## Status
 
 Migration in progress from lootek/claude-code-harness (2026-09-29).
-Picker (ai/air) is live; safety hooks are live on claude/codex/opencode.
-Skills/plugins/agents deploy comes at cutover.
+Picker (ai/air) is live; safety hooks are live on claude/codex/opencode;
+command/prompt history is live on claude/opencode (codex awaits its one-time
+hook trust). Skills/plugins/agents deploy comes at cutover.
 
 ## Safety
 
@@ -70,6 +74,35 @@ install or any change to the wiring, run `codex` once and pick
 "2. Trust all and continue" — until then the hook is silently skipped and
 codex runs without this gate.
 
+## History
+
+Every CLI also logs what it did, appending to one shared per-alias history
+in the session-context tree (`~/tmp/claude/ctx/<alias>/`, alias taken from
+the launch directory):
+
+    .commands_history.md    executed Bash calls (claude also: Edit/Write)
+    .prompts_history.md     submitted prompts
+
+The formats come from the claude hooks (`hooks/log_commands.py`,
+`hooks/prompt_history.py` — ported verbatim from claude-code-harness) and
+every CLI writes the same lines:
+
+    claude    ~/.claude/hooks/{log_commands,prompt_history}.py
+              (PostToolUse Bash/Edit/Write + UserPromptSubmit hooks)
+    codex     ~/.codex/hooks.json ->
+              ~/.ai-harness/adapters/codex/{log_commands,prompt_history}_codex.py
+              (spawn the same engines; PostToolUse payload field names carry
+              the Claude-Code-shape assumption — live-verify at cutover,
+              after the hook trust above)
+    opencode  ~/.config/opencode/plugins/ai-harness.history.ts
+              ("chat.message" for prompts, "tool.execute.after" for bash —
+              both payloads verified live, opencode 1.18.30)
+
+History is best-effort by design: any adapter fault exits silently — logging
+must never break a session. The claude-only set (`export_session.py`,
+`flush_stale_dumps.py`, `session-env-check.sh`) is deployed for cutover
+completeness and stays claude-wired via `~/.claude/settings.json`.
+
 Overriding a false positive: run the command by hand in your own shell (the
 gate only sees CLI-issued commands), or refine the rule in
 `hooks/safe_command.py` and rerun `install.sh`. On macOS, the deployed
@@ -82,10 +115,11 @@ engine copies are locked with `chflags uchg`; unlock with
 
 Deploys `ai.py` + `providers.yaml` to `~/.ai-harness/`, the `ai`/`air`
 aliases to `~/.zsh-aliases/ai`, bootstraps a pyyaml venv at
-`~/.ai-harness/.venv`, and (`--cli`, default `all`) deploys the safety hooks:
-engines to `~/.claude/hooks/` + `~/.ai-harness/hooks/`, the codex adapter and
+`~/.ai-harness/.venv`, and (`--cli`, default `all`) deploys the hooks: the
+full claude set (engines + history + claude-only) to `~/.claude/hooks/`,
+engines + history engines to `~/.ai-harness/hooks/`, the codex adapters and
 rendered `~/.codex/hooks.json` (merged with an existing file: unknown entries
-preserved, ours replaced), and the opencode plugin to
+preserved, ours replaced), and the opencode plugins to
 `~/.config/opencode/plugins/`.
 
 Dev tests: `cd hooks && ~/.ai-harness/.venv/bin/python -m pytest -q tests/`

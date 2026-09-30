@@ -10,6 +10,46 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/log_commands_codex.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/log_commands_codex.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/log_commands_codex.py"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/prompt_history_codex.py"
+          }
+        ]
+      }
     ]
   }
 }

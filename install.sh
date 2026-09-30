@@ -18,6 +18,15 @@
 #   opencode  engines + adapters/opencode/ai-harness.{safe-command,history}.ts
 #             -> ~/.config/opencode/plugins/
 #
+# Skills library (canonical skills/, one dir per skill, bundled assets inside):
+#   claude    -> ~/.claude/skills/<name>/            verbatim (the marketplace
+#               install in a later step supersedes; harmless until then)
+#   codex     -> ~/.agents/skills/<name>/            verbatim except the
+#               `allowed-tools:` frontmatter block, stripped from the copied
+#               SKILL.md (codex drops it anyway; repo copy stays untouched)
+#   opencode  -> ~/.config/opencode/skills/<name>/   verbatim (frontmatter
+#               ignored by opencode; allowed-tools kept for reference)
+#
 # Files protected with the macOS `uchg` (user-immutable) flag are handled with
 # a tight clear -> copy -> re-apply pair so they're never left writable. Files
 # without the flag are copied plainly (the script stays generic).
@@ -194,6 +203,42 @@ if want opencode; then
   install_file "$SRC/adapters/opencode/ai-harness.history.ts" \
                "$HOME/.config/opencode/plugins/ai-harness.history.ts"
   echo "  NOTE: re-apply the lock:  chflags uchg $DST/hooks/safe_command.py $DST/hooks/payload_guard.py"
+fi
+
+# ── skills library: canonical skills/ -> all three CLIs ─────────────────────
+SKILLS=(imagine mr-monitor mr-review review-board)
+
+install_skill_dir() {
+  # backup + replace one skill dir under a given parent (e.g. ~/.claude/skills)
+  local src="$1" parent="$2" name="$3"
+  mkdir -p "$parent"
+  backup_if_exists "$parent/$name"
+  rm -rf "$parent/$name"
+  cp -R "$src" "$parent/$name"
+  echo "  -> $parent/$name"
+}
+
+if want claude; then
+  for s in "${SKILLS[@]}"; do
+    install_skill_dir "$SRC/skills/$s" "$HOME/.claude/skills" "$s"
+  done
+fi
+
+if want codex; then
+  for s in "${SKILLS[@]}"; do
+    install_skill_dir "$SRC/skills/$s" "$HOME/.agents/skills" "$s"
+    # strip the allowed-tools block (header line + its "  - item" lines) from
+    # the COPY only — codex rejects/ignores it, and the repo file is untouched.
+    sed -i '' -e '/^allowed-tools: *\[/d' \
+              -e '/^allowed-tools:$/,/^[^ ]/{/^allowed-tools:$/d;/^  - /d;}' \
+              "$HOME/.agents/skills/$s/SKILL.md"
+  done
+fi
+
+if want opencode; then
+  for s in "${SKILLS[@]}"; do
+    install_skill_dir "$SRC/skills/$s" "$HOME/.config/opencode/skills" "$s"
+  done
 fi
 
 echo "done. Restart claude/codex/opencode if hooks or plugins changed."

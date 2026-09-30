@@ -1,0 +1,17 @@
+{
+  "name": "imagine",
+  "version": "0.1.0",
+  "description": "Generate images via OpenRouter's Image API. Lists available models and per-model options, generates images, and saves them to the current working dir.",
+  "author": {
+    "name": "lootek"
+  },
+  "keywords": [
+    "openrouter",
+    "image-generation",
+    "grok",
+    "nano-banana",
+    "flux",
+    "gpt-image"
+  ],
+  "license": "MIT"
+}

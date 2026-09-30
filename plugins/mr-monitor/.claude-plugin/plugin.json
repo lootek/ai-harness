@@ -1,0 +1,16 @@
+{
+  "name": "mr-monitor",
+  "version": "0.1.0",
+  "description": "Monitor a GitLab MR pipeline and review threads, fix issues until all green and resolved.",
+  "author": {
+    "name": "lootek"
+  },
+  "keywords": [
+    "gitlab",
+    "mr",
+    "pipeline",
+    "ci",
+    "review"
+  ],
+  "license": "MIT"
+}

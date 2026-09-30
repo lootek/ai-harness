@@ -1,0 +1,1791 @@
+{
+  "black-forest-labs/flux.2-flex": {
+    "providers": [
+      {
+        "provider_name": "Black Forest Labs",
+        "provider_slug": "black-forest-labs",
+        "provider_tag": "black-forest-labs",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "black-forest-labs",
+        "billable": "input_image",
+        "unit": "megapixel",
+        "cost_usd": 0.06
+      },
+      {
+        "provider_slug": "black-forest-labs",
+        "billable": "output_image",
+        "unit": "megapixel",
+        "cost_usd": 0.06
+      }
+    ],
+    "supported_parameters": {
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 8
+      },
+      "seed": {
+        "type": "boolean"
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "guidance",
+      "safety_tolerance",
+      "steps"
+    ]
+  },
+  "black-forest-labs/flux.2-klein-4b": {
+    "providers": [
+      {
+        "provider_name": "Black Forest Labs",
+        "provider_slug": "black-forest-labs",
+        "provider_tag": "black-forest-labs",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "black-forest-labs",
+        "billable": "output_image",
+        "unit": "megapixel",
+        "cost_usd": 0.014
+      }
+    ],
+    "supported_parameters": {
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 4
+      },
+      "seed": {
+        "type": "boolean"
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "guidance",
+      "safety_tolerance",
+      "steps"
+    ]
+  },
+  "black-forest-labs/flux.2-max": {
+    "providers": [
+      {
+        "provider_name": "Black Forest Labs",
+        "provider_slug": "black-forest-labs",
+        "provider_tag": "black-forest-labs",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "black-forest-labs",
+        "billable": "output_image",
+        "unit": "megapixel",
+        "cost_usd": 0.07
+      }
+    ],
+    "supported_parameters": {
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 8
+      },
+      "seed": {
+        "type": "boolean"
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "guidance",
+      "safety_tolerance",
+      "steps"
+    ]
+  },
+  "black-forest-labs/flux.2-pro": {
+    "providers": [
+      {
+        "provider_name": "Black Forest Labs",
+        "provider_slug": "black-forest-labs",
+        "provider_tag": "black-forest-labs",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "black-forest-labs",
+        "billable": "output_image",
+        "unit": "megapixel",
+        "cost_usd": 0.03
+      }
+    ],
+    "supported_parameters": {
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 8
+      },
+      "seed": {
+        "type": "boolean"
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "guidance",
+      "safety_tolerance",
+      "steps"
+    ]
+  },
+  "bytedance-seed/seedream-4.5": {
+    "providers": [
+      {
+        "provider_name": "Seed",
+        "provider_slug": "seed",
+        "provider_tag": "seed",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "seed",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.04
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "1:2",
+          "2:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "9:19.5",
+          "19.5:9",
+          "9:20",
+          "20:9",
+          "9:21",
+          "21:9",
+          "auto"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      },
+      "seed": {
+        "type": "boolean"
+      }
+    },
+    "allowed_passthrough_parameters": []
+  },
+  "google/gemini-2.5-flash-image": {
+    "providers": [
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio",
+        "provider_tag": "google-ai-studio",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-ai-studio",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 3e-07
+      },
+      {
+        "provider_slug": "google-ai-studio",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      },
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 3e-07
+      },
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      }
+    ],
+    "supported_parameters": {
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 3
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "google/gemini-3-pro-image-preview": {
+    "providers": [
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio/global",
+        "provider_tag": "google-ai-studio/global",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 2e-06
+      },
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 0.00012
+      },
+      {
+        "provider_slug": "google-ai-studio/global",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 2e-06
+      },
+      {
+        "provider_slug": "google-ai-studio/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 0.00012
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "google/gemini-3-pro-image": {
+    "providers": [
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio/global",
+        "provider_tag": "google-ai-studio/global",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 2e-06
+      },
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 0.00012
+      },
+      {
+        "provider_slug": "google-ai-studio/global",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 2e-06
+      },
+      {
+        "provider_slug": "google-ai-studio/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 0.00012
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:3",
+          "4:5",
+          "5:4",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "google/gemini-3.1-flash-image-preview": {
+    "providers": [
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio",
+        "provider_tag": "google-ai-studio",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 6e-05
+      },
+      {
+        "provider_slug": "google-ai-studio",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 6e-05
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "512",
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "1:4",
+          "1:8",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:1",
+          "4:3",
+          "4:5",
+          "5:4",
+          "8:1",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "google/gemini-3.1-flash-image": {
+    "providers": [
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio",
+        "provider_tag": "google-ai-studio",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 6e-05
+      },
+      {
+        "provider_slug": "google-ai-studio",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 6e-05
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "512",
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "1:4",
+          "1:8",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:1",
+          "4:3",
+          "4:5",
+          "5:4",
+          "8:1",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "google/gemini-3.1-flash-lite-image": {
+    "providers": [
+      {
+        "provider_name": "Google Vertex",
+        "provider_slug": "google-vertex/global",
+        "provider_tag": "google-vertex/global",
+        "supports_streaming": false
+      },
+      {
+        "provider_name": "Google AI Studio",
+        "provider_slug": "google-ai-studio",
+        "provider_tag": "google-ai-studio",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "google-vertex/global",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      },
+      {
+        "provider_slug": "google-ai-studio",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "1:4",
+          "1:8",
+          "2:3",
+          "3:2",
+          "3:4",
+          "4:1",
+          "4:3",
+          "4:5",
+          "5:4",
+          "8:1",
+          "9:16",
+          "16:9",
+          "21:9"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 14
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "cachedContent"
+    ]
+  },
+  "microsoft/mai-image-2.5": {
+    "providers": [
+      {
+        "provider_name": "Azure",
+        "provider_slug": "azure",
+        "provider_tag": "azure",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "azure",
+        "billable": "input_text",
+        "unit": "token",
+        "cost_usd": 5e-06
+      },
+      {
+        "provider_slug": "azure",
+        "billable": "input_image",
+        "unit": "token",
+        "cost_usd": 8e-06
+      },
+      {
+        "provider_slug": "azure",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 4.7e-05
+      }
+    ],
+    "supported_parameters": {
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "4:3",
+          "3:4",
+          "16:9",
+          "9:16",
+          "3:2",
+          "2:3",
+          "auto"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": []
+  },
+  "openai/gpt-5-image-mini": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 8e-06
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "openai/gpt-5-image": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 4e-05
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "openai/gpt-5.4-image-2": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "openai/gpt-image-1-mini": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 8e-06
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "openai/gpt-image-1": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 4e-05
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "openai/gpt-image-2": {
+    "providers": [
+      {
+        "provider_name": "OpenAI",
+        "provider_slug": "openai",
+        "provider_tag": "openai",
+        "supports_streaming": true
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "openai",
+        "billable": "output_image",
+        "unit": "token",
+        "cost_usd": 3e-05
+      }
+    ],
+    "supported_parameters": {
+      "quality": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 10
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 16
+      },
+      "output_compression": {
+        "type": "range",
+        "min": 0,
+        "max": 100
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "moderation"
+    ]
+  },
+  "recraft/recraft-v3": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.04
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4-pro-vector": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.3
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4-pro": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.25
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4-vector": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.08
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1-pro-vector": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.3
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1-pro": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.21
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1-utility-pro": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.21
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1-utility": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.035
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1-vector": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.08
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4.1": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.035
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "recraft/recraft-v4": {
+    "providers": [
+      {
+        "provider_name": "Recraft",
+        "provider_slug": "recraft",
+        "provider_tag": "recraft",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "recraft",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.04
+      }
+    ],
+    "supported_parameters": {
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 6
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 1
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "controls",
+      "style",
+      "text_layout"
+    ]
+  },
+  "sourceful/riverflow-v2-fast": {
+    "providers": [
+      {
+        "provider_name": "Sourceful",
+        "provider_slug": "sourceful",
+        "provider_tag": "sourceful",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.02
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.04
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "input_font",
+        "unit": "image",
+        "cost_usd": 0.03
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "input_reference",
+        "unit": "image",
+        "cost_usd": 0.2
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 4
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "font_inputs"
+    ]
+  },
+  "sourceful/riverflow-v2-pro": {
+    "providers": [
+      {
+        "provider_name": "Sourceful",
+        "provider_slug": "sourceful",
+        "provider_tag": "sourceful",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.15
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.15
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.33
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "input_font",
+        "unit": "image",
+        "cost_usd": 0.03
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "input_reference",
+        "unit": "image",
+        "cost_usd": 0.2
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 10
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "font_inputs"
+    ]
+  },
+  "sourceful/riverflow-v2.5-fast": {
+    "providers": [
+      {
+        "provider_name": "Sourceful",
+        "provider_slug": "sourceful",
+        "provider_tag": "sourceful",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.019
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.021
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K"
+        ]
+      },
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "jpeg"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 4
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "font_inputs"
+    ]
+  },
+  "sourceful/riverflow-v2.5-pro": {
+    "providers": [
+      {
+        "provider_name": "Sourceful",
+        "provider_slug": "sourceful",
+        "provider_tag": "sourceful",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.13
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.15
+      },
+      {
+        "provider_slug": "sourceful",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.17
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K",
+          "4K"
+        ]
+      },
+      "output_format": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg",
+          "webp"
+        ]
+      },
+      "background": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "transparent",
+          "opaque"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 10
+      }
+    },
+    "allowed_passthrough_parameters": [
+      "font_inputs"
+    ]
+  },
+  "x-ai/grok-imagine-image-quality": {
+    "providers": [
+      {
+        "provider_name": "xAI",
+        "provider_slug": "xai",
+        "provider_tag": "xai",
+        "supports_streaming": false
+      }
+    ],
+    "pricing": [
+      {
+        "provider_slug": "xai",
+        "billable": "input_image",
+        "unit": "image",
+        "cost_usd": 0.01
+      },
+      {
+        "provider_slug": "xai",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.05
+      },
+      {
+        "provider_slug": "xai",
+        "billable": "output_image",
+        "unit": "image",
+        "cost_usd": 0.07
+      }
+    ],
+    "supported_parameters": {
+      "resolution": {
+        "type": "enum",
+        "values": [
+          "1K",
+          "2K"
+        ]
+      },
+      "aspect_ratio": {
+        "type": "enum",
+        "values": [
+          "1:1",
+          "3:4",
+          "4:3",
+          "9:16",
+          "16:9",
+          "2:3",
+          "3:2",
+          "9:19.5",
+          "19.5:9",
+          "9:20",
+          "20:9",
+          "1:2",
+          "2:1",
+          "auto"
+        ]
+      },
+      "n": {
+        "type": "range",
+        "min": 1,
+        "max": 1
+      },
+      "input_references": {
+        "type": "range",
+        "min": 0,
+        "max": 3
+      }
+    },
+    "allowed_passthrough_parameters": []
+  }
+}

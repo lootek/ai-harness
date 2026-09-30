@@ -1,0 +1,15 @@
+{
+  "name": "mr-review",
+  "version": "0.1.0",
+  "description": "Review a GitLab MR end-to-end, propose urgent inline comments, and post each one only after explicit user approval.",
+  "author": {
+    "name": "lootek"
+  },
+  "keywords": [
+    "gitlab",
+    "mr",
+    "code-review",
+    "inline-comments"
+  ],
+  "license": "MIT"
+}

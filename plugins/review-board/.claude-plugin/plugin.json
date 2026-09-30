@@ -1,0 +1,15 @@
+{
+  "name": "review-board",
+  "version": "0.1.0",
+  "description": "Multi-persona review board — runs selected reviewers in parallel subagents and synthesizes their verdicts.",
+  "author": {
+    "name": "lootek"
+  },
+  "keywords": [
+    "review",
+    "tech-doc",
+    "rfc",
+    "multi-agent"
+  ],
+  "license": "MIT"
+}

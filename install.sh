@@ -26,6 +26,9 @@
 #               SKILL.md (codex drops it anyway; repo copy stays untouched)
 #   opencode  -> ~/.config/opencode/skills/<name>/   verbatim (frontmatter
 #               ignored by opencode; allowed-tools kept for reference)
+#               plus agents/opencode/*.md reviewer twins ->
+#               ~/.config/opencode/agents/ (codex gets the personas bundled
+#               inside skills/review-board/agents/ via the skill-dir copy)
 #
 # Files protected with the macOS `uchg` (user-immutable) flag are handled with
 # a tight clear -> copy -> re-apply pair so they're never left writable. Files
@@ -202,6 +205,12 @@ if want opencode; then
                "$HOME/.config/opencode/plugins/ai-harness.safe-command.ts"
   install_file "$SRC/adapters/opencode/ai-harness.history.ts" \
                "$HOME/.config/opencode/plugins/ai-harness.history.ts"
+  # reviewer subagent twins (regenerate: scripts/convert-agents-opencode.py;
+  # README.md stays out — opencode indexes every .md here as an agent)
+  mkdir -p "$HOME/.config/opencode/agents"
+  for a in "$SRC"/agents/opencode/reviewer-*.md; do
+    install_file "$a" "$HOME/.config/opencode/agents/$(basename "$a")"
+  done
   echo "  NOTE: re-apply the lock:  chflags uchg $DST/hooks/safe_command.py $DST/hooks/payload_guard.py"
 fi
 

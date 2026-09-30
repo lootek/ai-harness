@@ -13,6 +13,8 @@ allowed-tools:
 
 On opencode: `Agent` → `task`, `AskUserQuestion` → `ask`; reviewers go through `task` sequentially or in batches. On codex: no user-defined subagents and no interactive-prompt tool — run the reviewers as sequential passes in the main agent, print any options and STOP, and act only on the user's next reply.
 
+On codex there is no subagent tool, so the personas ship as plain text: read `agents/reviewer-*.md` from this skill's directory, adopt each file as a persona in turn, and run them as sequential passes in this same session — same prompts, same output files.
+
 # Review Board
 
 Orchestrates a multi-persona review of a document. Each reviewer is a subagent that produces an independent, opinionated review. The main agent then synthesizes the verdicts into a single `review_synthesis.md`.

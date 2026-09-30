@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/safe_command_codex.py"
+          }
+        ]
+      }
+    ]
+  }
+}

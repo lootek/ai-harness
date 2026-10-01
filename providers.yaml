@@ -358,10 +358,14 @@ providers:
         toml:
           web_search: disabled
           features.multi_agent: false
-        # Free tier can take 45-240s to first byte; the catalog itself is fast.
-        # grep drops the non-chat models (embeddings, vision, Riva speech,
-        # NeMo guardrails, etc.) that would drown the fzf list.
-        listcmd: 'curl -s https://integrate.api.nvidia.com/v1/models -H "Authorization: Bearer $(cat ~/.secrets/nvidia)" | jq -r ".data[].id" | grep -viE "embed|riva|parse|guard|reward|nvclip|vila|deplot|kosmos|fuyu|arctic|starcoder|codegemma|recurrentgemma|diffusiongemma|glimmer|synthetic|neva|translate|calibration|safety|omni|vl-|vision"'
+        # /v1/responses is PER-MODEL on NIM, not fleet-wide: probing every
+        # catalog chat model on 2026-10-01 gave exactly three 200s out of 45
+        # candidates (z-ai/glm-5.3, moonshotai/kimi-k3, deepseek et al all
+        # 404 "page not found" — route exists, model not wired to it). GLM on
+        # codex is served by the zai provider instead. Static list: re-probe
+        # occasionally (404s return instantly) — probe log kept in the session
+        # dir as nvidia_responses_probe.txt.
+        listcmd: 'printf "%s\n" nvidia/nemotron-3-super-120b-a12b nvidia/nemotron-3-ultra-550b-a55b openai/gpt-oss-20b'
       opencode:
         provider_id: nvidia
         env_key: NVIDIA_API_KEY

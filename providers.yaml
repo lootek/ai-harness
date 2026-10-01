@@ -77,6 +77,16 @@ providers:
         #    still what unlocks 1M for non-claude model names on the other providers
         #    below (ollama, zai, huggingface).
         #
+        # Staleness gotcha: source #2 only self-refreshes off a call that
+        # actually reaches api.anthropic.com. If `claude` is mostly invoked
+        # through this wrapper with a BYO provider (ANTHROPIC_BASE_URL
+        # overridden by one of the other provider blocks below), that never
+        # happens and the cache can sit stale for days even though it carries
+        # fetchedAt/staleAt timestamps only ~1hr apart. Fix: `ai --refresh-models`
+        # (forces one clean-env `claude -p` call against the real API first,
+        # see ai.py's refresh_anthropic_catalog) or add ~/.secrets/anthropic so
+        # source #1 always wins instead.
+        #
         # opus/sonnet 4.7 and older are excluded from both source #2 and #3 —
         # superseded by the 5-series and no longer worth surfacing in the picker.
         # haiku-4-5 is kept regardless of its 4.5 version number: it is the only

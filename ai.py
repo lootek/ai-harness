@@ -23,6 +23,13 @@ Flags (consumed by this script, not forwarded):
     --cli NAME         claude | codex | opencode (skip the cli fzf)
     --provider NAME    skip the provider fzf
     --model ID         skip the model fzf
+    --refresh-models   standalone pre-step: force a clean-env `claude -p`
+                        call against the real api.anthropic.com first, to
+                        refresh claude code's own model-catalog cache before
+                        the picker runs (see apply_claude_env / providers.yaml
+                        for why that cache goes stale). Does not consume
+                        --cli/--provider/--model; the normal flow continues
+                        after it either way.
     --                 everything after is passed to the CLI verbatim
 """
 import hashlib
@@ -111,6 +118,40 @@ SLOT_VARS = (
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "CLAUDE_CODE_SUBAGENT_MODEL",
 )
+
+
+def refresh_anthropic_catalog():
+    # --refresh-models pre-step. Source #2 in providers.yaml (the model-catalog
+    # cache) only self-refreshes off a call that actually reaches
+    # api.anthropic.com; if `claude` is mostly invoked through this wrapper
+    # with a BYO provider's ANTHROPIC_BASE_URL set, that never happens and the
+    # cache can sit stale for days. Force one real hit here with a clean env —
+    # strip every ANTHROPIC_* var so the call can't accidentally land on a
+    # gateway (which wouldn't refresh anything and would burn a BYO token on a
+    # throwaway prompt) and instead uses native `claude login` credentials.
+    # Best-effort only: never aborts the picker, just warns on failure.
+    env = dict(os.environ)
+    for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"):
+        env.pop(k, None)
+    try:
+        r = subprocess.run(
+            ["claude", "-p", "hi", "--output-format", "json"],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+    except FileNotFoundError:
+        sys.stderr.write("⚠ --refresh-models: claude CLI not found on PATH — skipping\n")
+        return
+    except subprocess.TimeoutExpired:
+        sys.stderr.write("⚠ --refresh-models: claude -p timed out after 60s — skipping\n")
+        return
+    if r.returncode == 0:
+        sys.stderr.write("→ refreshed anthropic model catalog\n")
+    else:
+        tail = "\n   ".join((r.stderr or r.stdout or "").strip().splitlines()[-3:])
+        sys.stderr.write(
+            f"⚠ --refresh-models: claude exited {r.returncode}, catalog may still be stale"
+            + (f"\n   {tail}" if tail else "") + "\n"
+        )
 
 
 def route_slots(cfg, model):
@@ -266,12 +307,16 @@ def parse_args(argv):
     cli = None
     provider = None
     model = None
+    refresh_models = False
     rest = []
     i = 0
     while i < len(argv):
         t = argv[i]
         if t in ("--resume", "--continue"):
             resume = True
+            i += 1
+        elif t == "--refresh-models":
+            refresh_models = True
             i += 1
         elif t == "--cli" and i + 1 < len(argv):
             cli = argv[i + 1]
@@ -288,11 +333,13 @@ def parse_args(argv):
         else:
             rest = argv[i:]
             break
-    return resume, cli, provider, model, rest
+    return resume, cli, provider, model, refresh_models, rest
 
 
 def main():
-    resume, cli, provider, model, rest = parse_args(sys.argv[1:])
+    resume, cli, provider, model, refresh_models, rest = parse_args(sys.argv[1:])
+    if refresh_models:
+        refresh_anthropic_catalog()
     providers = load()
     if cli and cli not in SUPPORTED:
         sys.exit(f"unknown cli: {cli} (supported: {', '.join(SUPPORTED)})")

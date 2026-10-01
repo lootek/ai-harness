@@ -32,10 +32,16 @@ Source the alias file (`install.sh` copies it to `~/.zsh-aliases/ai`), then:
     ai --provider zai -p "hi"   pick provider/model, pass -p to claude
     ai --cli codex --provider nvidia --model openai/gpt-oss-20b exec "say ok"
     ai --cli opencode --provider zai run "say ok"
+    ai --refresh-models --provider anthropic   force-refresh claude's model
+                                                catalog cache, then pick
     ccprov                      print the active provider env
 
 `--cli`, `--provider`, `--model` skip the corresponding fzf step; everything
-after `--` (or any non-picker flag) goes to the CLI verbatim.
+after `--` (or any non-picker flag) goes to the CLI verbatim. `--refresh-models`
+is a standalone pre-step (doesn't consume the others) that forces a clean-env
+`claude -p` call against the real api.anthropic.com before the picker runs —
+use it when the anthropic provider's model list looks stale from running
+mostly through BYO providers.
 
 ## Status
 

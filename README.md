@@ -39,12 +39,12 @@ after `--` (or any non-picker flag) goes to the CLI verbatim.
 
 ## Status
 
-Migration in progress from lootek/claude-code-harness (2026-09-29).
-Picker (ai/air) is live; safety hooks are live on claude/codex/opencode;
-command/prompt history is live on claude/opencode (codex awaits its one-time
-hook trust). Skills, agents, and the plugin marketplace install via
-install.sh; the marketplace source flips from local checkout to github at
-cutover, when the repo goes public.
+Live — migrated 2026-10-01 from lootek/claude-code-harness (archived;
+README there points here). Picker (ai/air) live on claude/codex/opencode;
+safety hooks live on all three; command/prompt history live on
+claude/opencode (codex awaits its one-time hook trust, then a live
+re-check). Skills, agents, and the `lootek` plugin marketplace install
+via install.sh (github source: lootek/ai-harness).
 
 ## Safety
 
@@ -126,12 +126,11 @@ plus a byte-exact mirror of its skill from `skills/<name>/` (and `agents/`
 for review-board); `scripts/sync-skills.sh --check` gates the drift.
 
 `install.sh` (`--cli claude`) registers the marketplace and installs all
-four as `<name>@lootek`. While this repo is private, the github add
-(`claude plugin marketplace add lootek/ai-harness`) fails, so the script
-falls back to registering the local checkout as a directory-source
-marketplace — same name, same plugins. The github source activates at the
-public flip (cutover: `claude plugin marketplace remove lootek && claude
-plugin marketplace add lootek/ai-harness`).
+four as `<name>@lootek`. It registers the github source
+(`claude plugin marketplace add lootek/ai-harness`) directly; only if that
+add fails (e.g. no GitHub credentials for a private clone) does it fall
+back to registering the local checkout as a directory-source marketplace —
+same name, same plugins.
 
 Locked-host note: `claude plugin install` records the plugin in
 `enabledPlugins` inside `~/.claude/settings.json`; install.sh clears and
@@ -140,7 +139,10 @@ discipline as the hook files).
 
 ## Install
 
+    git clone git@github.com:lootek/ai-harness.git && cd ai-harness
     bash install.sh [--cli claude|codex|opencode|all]
+    # then: restart your shells (aliases are sourced at shell start) and
+    # relaunch claude/codex/opencode so they pick up the hooks
 
 Deploys `ai.py` + `providers.yaml` to `~/.ai-harness/`, the `ai`/`air`
 aliases to `~/.zsh-aliases/ai`, bootstraps a pyyaml venv at
@@ -152,6 +154,11 @@ preserved, ours replaced), and the opencode plugins to
 `~/.config/opencode/plugins/`. With `--cli claude` (or `all`) it also
 registers the `lootek` plugin marketplace and installs the four plugin
 bundles (see Plugins).
+
+codex one-time hook trust: after install (and after ANY later change to
+`~/.codex/hooks.json`), run `codex` once and pick "2. Trust all and
+continue" — until then codex silently skips the hooks and runs without the
+safety gate and history logging.
 
 Dev tests: `cd hooks && ~/.ai-harness/.venv/bin/python -m pytest -q tests/`
 (pytest is dev-only — installed into the venv by hand, not via install.sh).

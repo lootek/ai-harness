@@ -207,52 +207,14 @@ providers:
   xai:
     token: ~/.secrets/xai
     clis:
-      claude:
-        # KNOWN BROKEN (claude code 2.1.287 vs api.x.ai /v1/messages, every prompt
-        # fails with HTTP 400). Two independent causes, found by proxying claude's
-        # real requests and bisecting with curl:
-        #  1. claude appends a message with role "system" after the user turn
-        #     (mid-conversation system turns). xAI: 400 "Invalid message role".
-        #     Avoidable: CLAUDE_CODE_MODEL_CAPABILITIES="grok*=-mid_conversation_system,-mid_conv_system"
-        #  2. Tool definitions without an input_schema.required key (no-arg tools
-        #     such as CronList, EnterWorktree, ListAgents, ScheduleWakeup, TaskStop,
-        #     Workflow, plus many MCP/plugin tools) are rejected: 400 "Schema
-        #     validation failed: /required: null is not of type array". A request
-        #     with required:[] added to those tools, or with tools removed, is 200.
-        #     No env var/setting disables them as a group, so this has no clean fix.
-        # Use codex or opencode for xAI instead, or remove this block.
-        #
-        # xAI (Grok) — exposes an Anthropic-compatible /v1/messages alongside its
-        # OpenAI-style routes, so claude code talks to it directly.
-        # https://docs.x.ai/docs/api-reference   (key from https://console.x.ai)
-        #
-        # BILLING: an API key meters against pay-as-you-go API credits. A SuperGrok
-        # or X Premium+ subscription is a *consumer* entitlement on the
-        # accounts.x.ai OAuth surface — claude code has no xAI OAuth flow and can
-        # only present a bearer token, so the subscription does not pay for this.
-        # Confirmed against the live API: a valid key with no credits authenticates
-        # but every call (including /v1/models) returns
-        #   403 permission-denied "team doesn't have any credits or licenses yet"
-        # so the model picker stays empty until credits are bought at console.x.ai.
-        # A wrong key gives "Incorrect API key" instead — the two are easy to tell
-        # apart when debugging.
-        #
-        # Auth: verified against the live endpoint — both `Authorization: Bearer`
-        # and `x-api-key` are accepted, so ANTHROPIC_AUTH_TOKEN alone is enough and
-        # no api_key entry is needed here.
-        base_url: https://api.x.ai
-        max_output_tokens:
-        # Point claude code's opus/sonnet/haiku/subagent slots at the picked model;
-        # the Anthropic names they default to don't exist here.
-        route_slots_to_model: true
-        # No [1m] variants: unlike ollama/z.ai there is no confirmed 1M-context
-        # Grok model, and the suffix would claim a window the backend may not have.
-        # /v1/models needs the key, so the picker is empty without it — apply_env
-        # already fails loudly ("token file not found") before we get that far.
-        listcmd: |
-          curl -s https://api.x.ai/v1/models \
-            -H "Authorization: Bearer $(cat ~/.secrets/xai)" \
-          | jq -r '.data[].id' 2>/dev/null | sort
+      # claude: intentionally not wired. xAI's /v1/messages rejects Claude Code:
+      #  1. it appends a role:"system" message after the user turn -> 400 "Invalid
+      #     message role" (workaround: CLAUDE_CODE_MODEL_CAPABILITIES="grok*=-mid_conversation_system,-mid_conv_system")
+      #  2. no-arg tools (CronList, TaskStop, many MCP tools...) have input_schema
+      #     without `required` -> 400 "/required: null is not of type array"; no
+      #     env var disables tools as a group.
+      # Re-enable when xAI's /v1/messages accepts system-role messages and tools
+      # without `required`; re-test with `claude -p` through ai.py.
       codex:
         base_url: https://api.x.ai/v1
         env_key: XAI_API_KEY

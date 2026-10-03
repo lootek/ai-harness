@@ -76,6 +76,34 @@ subscription). There are no BYO providers or base URLs for it, and the safety
 hooks/skills installed by `install.sh` do not apply to it. Install the CLI with
 `curl https://cursor.com/install -fsS | bash`.
 
+## Provider × CLI support
+
+✅ live-verified or documented as noted, ❌ does not work (reason below), ⚠ untested, — not wired.
+
+| provider    | claude        | codex                  | opencode                 |
+|-------------|---------------|------------------------|--------------------------|
+| anthropic   | ✅ native     | —                      | ✅                       |
+| ollama      | ✅            | —                      | ✅                       |
+| openrouter  | ✅ (documented) | ✅                   | ✅                       |
+| poe         | ✅ (documented, untested: key invalid) | ⚠ (untested: key invalid) | ✅ (catalog) |
+| xai         | ❌            | ✅                     | ✅                       |
+| zai         | ✅            | ✅                     | ✅ (zai-coding-plan)     |
+| nvidia      | —             | ✅ (3 models)          | ✅                       |
+| huggingface | ✅            | —                      | ✅                       |
+| cursor      | cursor CLI only (launcher, no BYO provider) | | |
+
+Notes:
+
+- xai/claude ❌: xAI's `/v1/messages` rejects Claude Code's requests (role:"system"
+  message after the user turn; tools without `required`). Details in providers.yaml.
+  xai/codex needs the `web_search`/`multi_agent` toml extras (already in providers.yaml).
+- nvidia/codex is per-model: only `nemotron-3-super-120b-a12b`,
+  `nemotron-3-ultra-550b-a55b` and `gpt-oss-20b` serve `/v1/responses`. GLM, kimi
+  etc. work on NVIDIA only via opencode (chat-completions wire).
+- zai: the Coding Plan weekly quota can block calls (quota, not a compat issue).
+- cursor: launcher-only; models come from the Cursor account (Grok via the
+  subscription). Named models need a paid Cursor plan; free plans are Auto-only.
+
 ## Status
 
 Live — migrated 2026-10-01 from lootek/claude-code-harness (archived;

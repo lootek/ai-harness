@@ -219,7 +219,11 @@ if want opencode; then
   # gate included). `opencode plugin list` shows a loadable plugin by its
   # declared id and a rejected one by bare path — verify both ids are there.
   if command -v opencode >/dev/null 2>&1; then
-    pl="$(opencode plugin list 2>&1)"
+    # first query for a not-yet-booted directory answers "No plugins found"
+    for _ in 1 2 3 4; do
+      pl="$(opencode plugin list 2>&1)"
+      case "$pl" in *"No plugins found"*) sleep 0.5 ;; *) break ;; esac
+    done
     for id in ai-harness.safe-command ai-harness.history; do
       if ! printf '%s\n' "$pl" | awk -v id="$id" '$1 == id {f=1} END {exit !f}'; then
         echo "  !!! opencode did NOT load plugin $id — the safety gate is OFF on opencode." >&2

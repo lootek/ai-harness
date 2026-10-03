@@ -31,7 +31,8 @@ Source the alias file (`install.sh` copies it to `~/.zsh-aliases/ai`), then:
     air                         same, resuming the most recent session
     ai --provider zai -p "hi"   pick provider/model, pass -p to claude
     ai --cli codex --provider nvidia --model openai/gpt-oss-20b exec "say ok"
-    ai --cli opencode --provider zai run "say ok"
+    ai --cli opencode --provider xai --model grok-4.7 run "say ok"
+    ai --cli opencode --provider xai            interactive TUI (model via config)
     ai --cli cursor --provider cursor           pick a model from your Cursor account
     ai --refresh-models --provider anthropic   force-refresh claude's model
                                                 catalog cache, then pick
@@ -43,6 +44,28 @@ is a standalone pre-step (doesn't consume the others) that forces a clean-env
 `claude -p` call against the real api.anthropic.com before the picker runs —
 use it when the anthropic provider's model list looks stale from running
 mostly through BYO providers.
+
+opencode 2.x launch shapes (the picker builds these; flags go after the
+subcommand because the top-level `opencode` has no `--model`):
+
+    ai … run "msg"   ->  opencode run --standalone --model <prov/model> "msg"
+    ai … mini        ->  opencode mini --standalone --model <prov/model>
+    ai …             ->  opencode --standalone            (TUI; model injected as
+                         {"model": …} into OPENCODE_CONFIG_CONTENT, merged
+                         with the provider's `config`)
+    air …            ->  same, plus --continue
+    other subcommands (models, auth, session …) pass through untouched.
+
+`--standalone` is required: opencode 2 runs a shared background service
+(`opencode serve --service`) that never sees the launching process's env, so
+without it the exported provider key reaches only the client and the run
+fails with `Model unavailable`. The model picker no longer shells out to
+`opencode models <provider>` (v2 takes no provider argument and lists only
+providers the service already knows): it filters `opencode models` by
+`<provider_id>/` and falls back to opencode's cached models.dev catalogue
+(`~/.cache/opencode/models.json`). ai/air refuse to launch opencode when
+`opencode plugin list` does not show both ai-harness plugin ids
+(`AI_ALLOW_UNGATED=1` overrides).
 
 `cursor` (Cursor's terminal agent, binary `agent`) is a launcher-only CLI:
 it runs `agent [--model <id>] [--continue]`. Auth is the Cursor account

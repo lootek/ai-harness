@@ -41,6 +41,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 
 try:
@@ -99,10 +100,33 @@ def fzf_pick(lines, prompt):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def list_opencode_models(pid):
+    # opencode 2.x: `opencode models` takes no provider argument and the
+    # background service only lists providers it was started with (no
+    # exported key); a --standalone server lists nothing before its catalogue
+    # has loaded. So: service listing filtered to <pid>/ (covers ollama and
+    # OAuth providers), then the models.dev catalogue opencode caches.
+    prefix = pid + "/"
+    r = subprocess.run(["opencode", "models"], capture_output=True, text=True)
+    ids = [l.strip() for l in r.stdout.splitlines() if l.startswith(prefix)]
+    if ids:
+        return ids
+    path = os.path.expanduser("~/.cache/opencode/models.json")
+    try:
+        with open(path) as f:
+            models = (json.load(f).get(pid) or {}).get("models") or {}
+    except (OSError, ValueError):
+        return []
+    return [prefix + m for m in sorted(models)]
+
+
 def list_model_ids(cfg):
     cmd = cfg.get("listcmd")
     if not cmd:
         return []
+    m = re.fullmatch(r"opencode models (\S+)", cmd.strip())
+    if m:
+        return list_opencode_models(m.group(1))
     out = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     return [l for l in out.stdout.splitlines() if l.strip()]
 
@@ -313,6 +337,54 @@ def apply_opencode_env(cfg, providers):
         os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps(cfg["config"])
 
 
+def opencode_args(cfg, model, resume, rest):
+    # opencode 2.x: top-level `opencode` has no --model; `run`/`mini` do.
+    # --standalone starts a private server so the provider key exported above
+    # reaches it (the shared background service never sees this process's
+    # env). The interactive TUI takes its model from config instead, merged
+    # into OPENCODE_CONFIG_CONTENT next to the provider's own `config`.
+    sub = rest[0] if rest and not rest[0].startswith("-") else None
+    cont = ["--continue"] if resume else []
+    if sub in ("run", "mini"):
+        return [sub, "--standalone", *(["--model", model] if model else []),
+                *cont, *rest[1:]]
+    if sub is not None:  # models/auth/session/...: pass through untouched
+        return list(rest)
+    if model:
+        conf = dict(cfg.get("config") or {})
+        conf["model"] = model
+        os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps(conf)
+    return ["--standalone", *cont, *rest]
+
+
+OC_PLUGINS = ("ai-harness.safe-command", "ai-harness.history")
+
+
+def check_opencode_plugins():
+    # A plugin opencode rejects is silently inactive — for safe-command that
+    # means no gate. `opencode plugin list` shows a loadable plugin by its
+    # declared id and a rejected module by bare path, so require both ids.
+    if os.environ.get("AI_ALLOW_UNGATED") == "1":
+        return
+    # The first query for a directory the service has not booted yet answers
+    # "No plugins found" — retry before believing it.
+    for _ in range(4):
+        r = subprocess.run(["opencode", "plugin", "list"], capture_output=True, text=True)
+        if "No plugins found" not in r.stdout:
+            break
+        time.sleep(0.5)
+    loaded = {l.split()[0] for l in r.stdout.splitlines() if l.split()}
+    missing = [p for p in OC_PLUGINS if p not in loaded]
+    if missing:
+        sys.exit(
+            f"opencode: plugin(s) not loaded: {', '.join(missing)} — the safety gate "
+            "would be OFF. Fix with `bash install.sh --cli opencode`, inspect "
+            "`opencode plugin list` / the 'failed to load plugin' lines in "
+            "~/.local/share/opencode/log/opencode.log. "
+            "Override (ungated!): AI_ALLOW_UNGATED=1"
+        )
+
+
 # ── cursor path (launcher-only: account auth, no BYO provider) ──────────────
 
 CURSOR_HINT = "cursor: not authenticated — run `agent login` (or put a key in ~/.secrets/cursor)"
@@ -456,15 +528,15 @@ def main():
             if not model:
                 sys.exit(130)
         args = ["--model", model, *(["--continue"] if resume else []), *rest]
-    else:  # opencode
+    else:  # opencode (2.x)
         apply_opencode_env(cfg, providers)
+        check_opencode_plugins()
         if not model:
             model = fzf_pick(list_model_ids(cfg), f"{provider}> ")
-        # No --model = opencode's configured default; an empty fzf pick is a
+        # No model = opencode's configured default; an empty fzf pick is a
         # valid "just launch" there (claude/codex exit 130 instead).
         model = prefixed_model(cfg, model)
-        args = [*(["--model", model] if model else []),
-                *(["--continue"] if resume else []), *rest]
+        args = opencode_args(cfg, model, resume, rest)
     sys.stderr.write(f"→ cli={cli} provider={provider} model={model}\n")
     os.execvpe(binary, [binary, *args], os.environ)
 

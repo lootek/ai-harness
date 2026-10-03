@@ -242,6 +242,13 @@ providers:
       codex:
         base_url: https://api.x.ai/v1
         env_key: XAI_API_KEY
+        # xAI's /v1/responses 422s on the multi_agent_v1 "namespace" tool codex
+        # 0.157 sends ("unknown variant 'namespace'"). Once that is gone, the
+        # built-in web_search tool fails too: 400 "Argument not supported:
+        # external_web_access" (xAI lists web_search but not codex's arg).
+        toml:
+          web_search: disabled
+          features.multi_agent: false
         listcmd: |
           curl -s https://api.x.ai/v1/models \
             -H "Authorization: Bearer $(cat ~/.secrets/xai)" \

@@ -25,7 +25,7 @@ Flags (consumed by this script, not forwarded):
     --model ID         skip the model fzf
     --refresh-models   standalone pre-step: force a clean-env `claude -p`
                         call against the real api.anthropic.com first, to
-                        refresh claude code's own model-catalog cache before
+                        refresh claude code's own model-catalog cache (*-cc.json) before
                         the picker runs (see apply_claude_env / providers.yaml
                         for why that cache goes stale). Does not consume
                         --cli/--provider/--model; the normal flow continues
@@ -122,7 +122,7 @@ SLOT_VARS = (
 
 def refresh_anthropic_catalog():
     # --refresh-models pre-step. Source #2 in providers.yaml (the model-catalog
-    # cache) only self-refreshes off a call that actually reaches
+    # cache, v2 *-cc.json) only refreshes off a call that actually reaches
     # api.anthropic.com; if `claude` is mostly invoked through this wrapper
     # with a BYO provider's ANTHROPIC_BASE_URL set, that never happens and the
     # cache can sit stale for days. Force one real hit here with a clean env —

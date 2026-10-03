@@ -54,15 +54,20 @@ providers:
         #    API instead of anything cached locally.
         #
         # 2. ~/.claude/cache/model-catalog/ — the claude code binary's own model
-        #    catalogue, populated by `claude`/`/login` itself (signed, versioned,
-        #    fetchedAt/staleAt). published-floor.json maps the current content
-        #    hash to the live published-<hash>.json; the picker reads
-        #    .document.surfaces.cc.model_selector_config[0].models[].id. This is
-        #    what caught claude-opus-5-5 missing from the old hardcoded list below
-        #    (added 2026-09) — prefer it, it can't go stale the way a hand
-        #    maintained list can. Internal/undocumented format: no public schema
-        #    promise, may change on a claude code update, and does not exist until
-        #    `claude` has run once.
+        #    catalogue (signed, versioned, fetchedAt/staleAt), populated by
+        #    `claude` itself. Two formats live side by side:
+        #      v2 (preferred): <uuid>-<hash>-cc.json, newest by mtime; ids at
+        #        .catalog.config.models[].id. Refreshes during normal `claude -p`
+        #        calls.
+        #      v1 (legacy fallback): published-floor.json maps the content hash
+        #        to published-<hash>.json; ids at
+        #        .document.surfaces.cc.model_selector_config[0].models[].id.
+        #        Can be a stale snapshot that no longer updates (it lacked
+        #        claude-sonnet-5-5), so it is only used if v2 yields nothing.
+        #    Prefer this over a hand-maintained list: it can't go stale the way
+        #    that can (it caught claude-opus-5-5 missing, 2026-09). Internal and
+        #    undocumented: no public schema promise, may change on a claude code
+        #    update, and absent until `claude` has run once.
         #
         # 3. Hardcoded fallback — pre-login, or if the cache format ever breaks.
         #    Refreshed Sept 2026. No [1m] variants: measured on claude code 2.1.281
@@ -77,15 +82,13 @@ providers:
         #    still what unlocks 1M for non-claude model names on the other providers
         #    below (ollama, zai, huggingface).
         #
-        # Staleness gotcha: source #2 only self-refreshes off a call that
-        # actually reaches api.anthropic.com. If `claude` is mostly invoked
-        # through this wrapper with a BYO provider (ANTHROPIC_BASE_URL
-        # overridden by one of the other provider blocks below), that never
-        # happens and the cache can sit stale for days even though it carries
-        # fetchedAt/staleAt timestamps only ~1hr apart. Fix: `ai --refresh-models`
-        # (forces one clean-env `claude -p` call against the real API first,
-        # see ai.py's refresh_anthropic_catalog) or add ~/.secrets/anthropic so
-        # source #1 always wins instead.
+        # Staleness: source #2 only refreshes off a call that actually reaches
+        # api.anthropic.com. If `claude` is mostly invoked through this wrapper
+        # with a BYO provider (ANTHROPIC_BASE_URL overridden by one of the other
+        # provider blocks below), the v2 catalog can sit stale. Fix:
+        # `ai --refresh-models` (forces one clean-env `claude -p` call against
+        # the real API first, see ai.py's refresh_anthropic_catalog) or add
+        # ~/.secrets/anthropic so source #1 always wins instead.
         #
         # opus/sonnet 4.7 and older are excluded from both source #2 and #3 —
         # superseded by the 5-series and no longer worth surfacing in the picker.
@@ -100,7 +103,12 @@ providers:
               -H "x-api-key: $(cat ~/.secrets/anthropic)" \
             | jq -r '.data[].id' 2>/dev/null | grep -vE "$ANTHROPIC_DROP"
           elif cat=~/.claude/cache/model-catalog; \
-               hash=$(jq -r '.sources | keys[0] // empty' "$cat/published-floor.json" 2>/dev/null); \
+               f=$(ls -t "$cat"/*-cc.json 2>/dev/null | head -1); \
+               [[ -n "$f" ]] && \
+               ids=$(jq -r '.catalog.config.models[]?.id' "$f" 2>/dev/null) && \
+               [[ -n "$ids" ]]; then
+            printf '%s\n' "$ids" | grep -vE "$ANTHROPIC_DROP"
+          elif hash=$(jq -r '.sources | keys[0] // empty' "$cat/published-floor.json" 2>/dev/null); \
                [[ -n "$hash" && -f "$cat/published-$hash.json" ]] && \
                ids=$(jq -r '.document.surfaces.cc.model_selector_config[0].models[]?.id' \
                      "$cat/published-$hash.json" 2>/dev/null) && \
@@ -113,6 +121,7 @@ providers:
               claude-opus-5-5 \
               claude-opus-5 \
               claude-opus-4-8 \
+              claude-sonnet-5-5 \
               claude-sonnet-5 \
               claude-haiku-4-5-20251001
             do

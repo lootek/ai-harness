@@ -74,7 +74,7 @@ heredocs — ASK only). The engine is owned once here and wired per CLI:
     claude    ~/.claude/hooks/safe_command.py        (PreToolUse hook)
     codex     ~/.codex/hooks.json -> ~/.ai-harness/adapters/codex/safe_command_codex.py
     opencode  ~/.config/opencode/plugins/ai-harness.safe-command.ts
-              (spawns ~/.ai-harness/hooks/safe_command.py per bash call)
+              (spawns ~/.ai-harness/hooks/safe_command.py per shell call)
 
 Both adapters fail closed: malformed hook payload or an engine fault denies
 the command. On codex, engine ASK verdicts are demoted to deny — codex exec
@@ -82,6 +82,17 @@ treats an "ask" as a failed hook and runs the command anyway (verified live,
 codex-cli 0.157.1), so the demotion is what keeps the gate closed; the reason
 keeps an `ASK-demotion (codex):` prefix so the judgment-call origin stays
 visible. On opencode, ASK keeps its own label (`[ai-harness] ASK: …`).
+
+opencode 2.x plugin API (the machine runs 2.0.20; 1.x plugins no longer
+load): a plugin is a module with `export default { id, setup(ctx) }` (the
+`effect` variant is the Effect-returning twin). The gate registers two
+layers: `ctx.tool.hook("execute.before")` runs the engine and throws to block
+(the tool is named `shell` in v2, `bash` in v1), and
+`ctx.permission.hook("evaluate")` denies any tool-originated shell call the
+first layer did not explicitly allow. A plugin the host rejects is silently
+inactive, so `install.sh` runs `opencode plugin list` and exits non-zero
+unless both `ai-harness.*` ids are listed (a rejected module shows up as a
+bare path).
 
 One shared audit trail: `~/.claude/hooks/safe_command_audit.jsonl`
 (append-only JSONL; `$AI_SAFE_COMMAND_AUDIT` overrides the path — absolute).
@@ -113,8 +124,8 @@ every CLI writes the same lines:
               the Claude-Code-shape assumption — live-verify at cutover,
               after the hook trust above)
     opencode  ~/.config/opencode/plugins/ai-harness.history.ts
-              ("chat.message" for prompts, "tool.execute.after" for bash —
-              both payloads verified live, opencode 1.18.30)
+              (`session.hook("prompt")` for prompts, `tool.hook("execute.after")`
+              for shell — both payloads verified live, opencode 2.0.20)
 
 History is best-effort by design: any adapter fault exits silently — logging
 must never break a session. The claude-only set (`export_session.py`,

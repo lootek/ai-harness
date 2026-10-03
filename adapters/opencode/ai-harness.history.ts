@@ -10,24 +10,23 @@
 // byte-for-byte (same headers, same "### <ts>" / "## <ts>" blocks) so all
 // three CLIs append to one history.
 //
-// Events, verified live against opencode 1.18.30 (2026-09-30, probe plugin
-// logging payloads over `opencode run`):
+// opencode 2.x plugin API (default export { id, setup(ctx) }), verified live
+// against opencode 2.0.20 (2026-10-03):
 //
-//   "chat.message" — fires exactly once per user message:
-//     input:  { sessionID: "ses_...", model: { providerID, modelID } }
-//     output: { message: { id, role: "user", sessionID, ... },
-//               parts: [{ type: "text", text: "<prompt>",
-//                         messageID, sessionID, id, synthetic? }] }
-//     (message.updated / message.part.updated also carry the text but fire
-//     repeatedly during streaming — chat.message is the once-per-prompt hook;
-//     there is no "command.executed" event in this version.)
+//   ctx.session.hook("prompt", cb) — fires once per submitted user message:
+//     cb input: { sessionID: "ses_...", messageID, prompt: { text, files },
+//                 delivery }
+//     (`opencode run "x"` delivers the text JSON-quoted: "\"x\""; the TUI
+//     delivers it verbatim. Logged as received.)
 //
-//   "tool.execute.after" — fires once per tool call:
-//     input:  { tool: "bash", sessionID: "ses_...", callID: "call_...",
-//               args: { command: "<cmd>" } }
-//     output: { title, metadata: { output, exit, truncated }, output }
+//   ctx.tool.hook("execute.after", cb) — once per tool call:
+//     cb input: { tool: "shell", sessionID, id, input: { command,
+//                 description? }, status: "completed" | "error", ... }
+//     A call denied by the safety gate surfaces as status "error" with a
+//     Permission.BlockedError and is not logged (it never ran).
+//     (tool is "shell" in v2, "bash" in v1; both are matched.)
 //
-// Only the bash tool is logged (the claude engine also formats Edit/Write;
+// Only the shell tool is logged (the claude engine also formats Edit/Write;
 // opencode's edit/write tool arg shapes are unverified — bash-only until
 // probed). Best-effort: every fault is swallowed — history must never break
 // an opencode session.
@@ -38,7 +37,6 @@
 import { appendFile, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { homedir } from "node:os"
-import type { Plugin } from "@opencode-ai/plugin"
 
 const CTX_ROOT = join(homedir(), "tmp", "claude", "ctx")
 
@@ -138,25 +136,25 @@ async function append(file: string, headerIfNew: string, block: string): Promise
   }
 }
 
-export const AIHistory: Plugin = async ({ directory }) => {
-  const dir = directory ?? process.cwd()
+const SHELL_TOOLS = new Set(["shell", "bash"])
 
-  const sessionDir = async (sessionID: string) => {
-    const s = await resolveSession(dir, sessionID)
-    if (!s) return null
-    await refreshSessionFile(s, sessionID)
-    return s
-  }
+export default {
+  id: "ai-harness.history",
+  setup: async (ctx: any) => {
+    const dir: string = ctx?.location?.directory ?? process.cwd()
 
-  return {
-    "chat.message": async (input, output) => {
+    const sessionDir = async (sessionID: string) => {
+      const s = await resolveSession(dir, sessionID)
+      if (!s) return null
+      await refreshSessionFile(s, sessionID)
+      return s
+    }
+
+    await ctx.session.hook("prompt", async (ev: any) => {
       try {
-        const parts = (output?.parts ?? []).filter(
-          (p) => p.type === "text" && p.text && !(p as { synthetic?: boolean }).synthetic,
-        )
-        const prompt = parts.map((p) => p.text).join("\n")
+        const prompt: string = ev?.prompt?.text ?? ""
         if (!prompt) return
-        const s = await sessionDir(input.sessionID ?? "")
+        const s = await sessionDir(String(ev.sessionID ?? ""))
         if (!s) return
         await append(
           join(s, ".prompts_history.md"),
@@ -166,14 +164,15 @@ export const AIHistory: Plugin = async ({ directory }) => {
       } catch {
         // best-effort
       }
-    },
+    })
 
-    "tool.execute.after": async (input) => {
+    await ctx.tool.hook("execute.after", async (ev: any) => {
       try {
-        if (input.tool !== "bash") return
-        const args = (input.args ?? {}) as { command?: string; description?: string }
+        if (!SHELL_TOOLS.has(ev.tool)) return
+        if (ev.status === "error" && ev.error?.error?._tag === "Permission.BlockedError") return
+        const args = (ev.input ?? {}) as { command?: string; description?: string }
         if (!args.command) return
-        const s = await sessionDir(input.sessionID ?? "")
+        const s = await sessionDir(String(ev.sessionID ?? ""))
         if (!s) return
         await append(
           join(s, ".commands_history.md"),
@@ -183,6 +182,6 @@ export const AIHistory: Plugin = async ({ directory }) => {
       } catch {
         // best-effort
       }
-    },
-  }
+    })
+  },
 }

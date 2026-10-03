@@ -215,6 +215,20 @@ if want opencode; then
                "$HOME/.config/opencode/plugins/ai-harness.safe-command.ts"
   install_file "$SRC/adapters/opencode/ai-harness.history.ts" \
                "$HOME/.config/opencode/plugins/ai-harness.history.ts"
+  # guard: an opencode plugin that fails to load is silently OFF (the safety
+  # gate included). `opencode plugin list` shows a loadable plugin by its
+  # declared id and a rejected one by bare path — verify both ids are there.
+  if command -v opencode >/dev/null 2>&1; then
+    pl="$(opencode plugin list 2>&1)"
+    for id in ai-harness.safe-command ai-harness.history; do
+      if ! printf '%s\n' "$pl" | awk -v id="$id" '$1 == id {f=1} END {exit !f}'; then
+        echo "  !!! opencode did NOT load plugin $id — the safety gate is OFF on opencode." >&2
+        echo "      opencode $(opencode --version 2>&1): check 'opencode plugin list' and" >&2
+        echo "      'grep \"failed to load plugin\" ~/.local/share/opencode/log/opencode.log'" >&2
+        PLUGIN_LOAD_FAILED=1
+      fi
+    done
+  fi
   # reviewer subagent twins (regenerate: scripts/convert-agents-opencode.py;
   # README.md stays out — opencode indexes every .md here as an agent)
   mkdir -p "$HOME/.config/opencode/agents"
@@ -322,4 +336,8 @@ if want claude; then
   fi
 fi
 
+if [ -n "${PLUGIN_LOAD_FAILED:-}" ]; then
+  echo "FAILED: opencode plugin(s) not loading (see above)." >&2
+  exit 1
+fi
 echo "done. Restart claude/codex/opencode if hooks or plugins changed."

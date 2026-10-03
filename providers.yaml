@@ -208,6 +208,20 @@ providers:
     token: ~/.secrets/xai
     clis:
       claude:
+        # KNOWN BROKEN (claude code 2.1.287 vs api.x.ai /v1/messages, every prompt
+        # fails with HTTP 400). Two independent causes, found by proxying claude's
+        # real requests and bisecting with curl:
+        #  1. claude appends a message with role "system" after the user turn
+        #     (mid-conversation system turns). xAI: 400 "Invalid message role".
+        #     Avoidable: CLAUDE_CODE_MODEL_CAPABILITIES="grok*=-mid_conversation_system,-mid_conv_system"
+        #  2. Tool definitions without an input_schema.required key (no-arg tools
+        #     such as CronList, EnterWorktree, ListAgents, ScheduleWakeup, TaskStop,
+        #     Workflow, plus many MCP/plugin tools) are rejected: 400 "Schema
+        #     validation failed: /required: null is not of type array". A request
+        #     with required:[] added to those tools, or with tools removed, is 200.
+        #     No env var/setting disables them as a group, so this has no clean fix.
+        # Use codex or opencode for xAI instead, or remove this block.
+        #
         # xAI (Grok) — exposes an Anthropic-compatible /v1/messages alongside its
         # OpenAI-style routes, so claude code talks to it directly.
         # https://docs.x.ai/docs/api-reference   (key from https://console.x.ai)

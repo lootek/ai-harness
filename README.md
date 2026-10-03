@@ -1,14 +1,14 @@
 # ai-harness
 
 Multi-CLI AI coding harness wrapper: one `ai`/`air` entry point that picks
-CLI → provider → model for claude/codex/opencode, wraps every launch in
+CLI → provider → model for claude/codex/opencode/cursor, wraps every launch in
 safety hooks, and carries a portable set of skills, plugins, and agents
 shared across the CLIs.
 
 ## Layout
 
     ai.py               entry point: CLI → provider → model picker
-    providers.yaml      provider/model catalog (claude/codex/opencode blocks)
+    providers.yaml      provider/model catalog (claude/codex/opencode/cursor blocks)
     sh-aliases/         shell aliases (ai, air, ccprov)
     install.sh          deploy picker artifacts to ~/.ai-harness + ~/.zsh-aliases
     populate.sh         capture live picker artifacts back into the repo
@@ -32,6 +32,7 @@ Source the alias file (`install.sh` copies it to `~/.zsh-aliases/ai`), then:
     ai --provider zai -p "hi"   pick provider/model, pass -p to claude
     ai --cli codex --provider nvidia --model openai/gpt-oss-20b exec "say ok"
     ai --cli opencode --provider zai run "say ok"
+    ai --cli cursor --provider cursor           pick a model from your Cursor account
     ai --refresh-models --provider anthropic   force-refresh claude's model
                                                 catalog cache, then pick
     ccprov                      print the active provider env
@@ -42,6 +43,15 @@ is a standalone pre-step (doesn't consume the others) that forces a clean-env
 `claude -p` call against the real api.anthropic.com before the picker runs —
 use it when the anthropic provider's model list looks stale from running
 mostly through BYO providers.
+
+`cursor` (Cursor's terminal agent, binary `agent`) is a launcher-only CLI:
+it runs `agent [--model <id>] [--continue]`. Auth is the Cursor account
+(one-time `agent login`; an optional API key in `~/.secrets/cursor` is
+exported as `CURSOR_API_KEY`). The model list comes from `agent models`, i.e.
+whatever your Cursor account offers (Grok models included via the
+subscription). There are no BYO providers or base URLs for it, and the safety
+hooks/skills installed by `install.sh` do not apply to it. Install the CLI with
+`curl https://cursor.com/install -fsS | bash`.
 
 ## Status
 

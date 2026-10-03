@@ -1,4 +1,4 @@
-# sh-aliases/ai — fzf-driven multi-CLI (claude/codex/opencode) provider/model picker
+# sh-aliases/ai — fzf-driven multi-CLI (claude/codex/opencode/cursor) provider/model picker
 #
 # Source from your shell rc, e.g. in ~/.zshrc:
 #   [ -f ~/path/to/ai-harness/sh-aliases/ai ] && source ~/path/to/...
@@ -7,7 +7,7 @@
 #   ai  [cli-args...]          fresh session (cli-args pass through to the CLI)
 #   air [cli-args...]          resume most-recent session
 #   ai --cli C --provider P --model M ...
-#                              skip the fzf pickers (C: claude|codex|opencode)
+#                              skip the fzf pickers (C: claude|codex|opencode|cursor)
 #   ccprov                     print active provider env (ANTHROPIC_* + keys)
 #
 # Config:  ~/.ai-harness/providers.yaml  (co-located with the wrapper)
@@ -20,4 +20,4 @@ AI_WRAPPER="$AI_HARNESS/ai.py"
 
 ai()    { "$AI_PY" "$AI_WRAPPER" "$@"; }
 air()   { "$AI_PY" "$AI_WRAPPER" --resume "$@"; }
-ccprov() { env | grep -E '^(ANTHROPIC|CLAUDE_CODE_MAX_OUTPUT|ZHIPU|XAI|OPENROUTER|POE|NVIDIA|HF_)' | sort; }
+ccprov() { env | grep -E '^(ANTHROPIC|CLAUDE_CODE_MAX_OUTPUT|ZHIPU|XAI|OPENROUTER|POE|NVIDIA|HF_|CURSOR_)' | sort; }

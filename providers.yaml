@@ -18,6 +18,10 @@
 #                  <env_key>; a `config` dict is serialized to JSON into
 #                  OPENCODE_CONFIG_CONTENT. No env_key = OAuth provider
 #                  (anthropic) — opencode's stored credentials are used.
+#   clis.cursor:   key_file?, listcmd. Launcher-only: models come from the Cursor
+#                  account (`agent models`), no BYO provider/base_url. Auth is
+#                  `agent login`; if key_file exists its content is exported as
+#                  CURSOR_API_KEY. Run via `agent --model <id>`.
 #
 # max_output_tokens (claude only): empty by default → claude code applies its
 #   per-model default (the CLI clamps explicit values anyway). Set to an int —
@@ -389,3 +393,17 @@ providers:
         provider_id: nvidia
         env_key: NVIDIA_API_KEY
         listcmd: 'opencode models nvidia'
+
+  cursor:
+    # Cursor's terminal agent (`agent`, alias `cursor-agent`). Launcher-only:
+    # it has no custom provider/base-URL support, so the model list is whatever
+    # the logged-in Cursor account offers (Grok models included via the Cursor
+    # subscription). One-time `agent login` (browser), or drop an API key in
+    # ~/.secrets/cursor (optional) to export CURSOR_API_KEY instead.
+    clis:
+      cursor:
+        key_file: ~/.secrets/cursor
+        # Raw `agent models` output; ai.py's parse_cursor_models extracts the
+        # ids (adjust that helper, not this line, if the format surprises us).
+        # Non-zero exit (not logged in) or no ids -> ai.py prints the auth hint.
+        listcmd: agent models 2>/dev/null || cursor-agent models 2>/dev/null

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ai/air — fzf-driven multi-CLI (claude/codex/opencode) provider+model wrapper.
+"""ai/air — fzf-driven multi-CLI (claude/codex/opencode/cursor) provider+model wrapper.
 
 Reads providers.yaml (co-located; falls back to ~/.ai-harness/providers.yaml),
 lets you pick CLI → provider → model (fzf), exports the right env per CLI, and
@@ -12,6 +12,9 @@ execs the CLI binary:
               selected via `codex --profile ai-<provider>`
     opencode  <env_key>=<token> (absent for OAuth providers) + optional
               OPENCODE_CONFIG_CONTENT from the block's `config:` dict
+    cursor    launcher-only: `agent [--model ID] [--continue]`. Account auth
+              (`agent login`); models come from `agent models`. Optional
+              ~/.secrets/cursor is exported as CURSOR_API_KEY when present.
 
 Usage (source sh-aliases/ai from your shell rc, then):
     ai [cli-args...]        fresh session
@@ -20,7 +23,7 @@ Usage (source sh-aliases/ai from your shell rc, then):
 
 Flags (consumed by this script, not forwarded):
     --resume           resume the most recent session; --continue is an alias
-    --cli NAME         claude | codex | opencode (skip the cli fzf)
+    --cli NAME         claude | codex | opencode | cursor (skip the cli fzf)
     --provider NAME    skip the provider fzf
     --model ID         skip the model fzf
     --refresh-models   standalone pre-step: force a clean-env `claude -p`
@@ -35,6 +38,7 @@ Flags (consumed by this script, not forwarded):
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,13 +55,18 @@ CFG_CANDIDATES = [
     os.path.expanduser("~/.ai-harness/providers.yaml"),
 ]
 CFG = next((p for p in CFG_CANDIDATES if os.path.isfile(p)), CFG_CANDIDATES[0])
-SUPPORTED = ("claude", "codex", "opencode")
-# All three CLIs are homebrew: claude and codex are casks, opencode a formula.
+SUPPORTED = ("claude", "codex", "opencode", "cursor")
+# claude and codex are homebrew casks, opencode a formula; cursor has no brew
+# formula (its own installer script).
 BREW = {
     "claude": "brew install --cask claude-code@latest",
     "codex": "brew install --cask codex",
     "opencode": "brew install opencode",
+    "cursor": "curl https://cursor.com/install -fsS | bash",
 }
+# cli name -> candidate binaries on PATH (first found wins). cursor's terminal
+# agent ships as `agent`, also symlinked as `cursor-agent`.
+BINARIES = {"cursor": ("agent", "cursor-agent")}
 
 
 def load():
@@ -99,8 +108,10 @@ def list_model_ids(cfg):
 
 
 def require_binary(cli):
-    if not shutil.which(cli):
-        sys.exit(f"{cli} CLI not found on PATH — {BREW[cli]}")
+    for b in BINARIES.get(cli, (cli,)):
+        if shutil.which(b):
+            return b
+    sys.exit(f"{cli} CLI not found on PATH — {BREW[cli]}")
 
 
 # ── claude path (ported wholesale from claude-code-harness tools/cc.py) ────
@@ -302,6 +313,55 @@ def apply_opencode_env(cfg, providers):
         os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps(cfg["config"])
 
 
+# ── cursor path (launcher-only: account auth, no BYO provider) ──────────────
+
+CURSOR_HINT = "cursor: not authenticated — run `agent login` (or put a key in ~/.secrets/cursor)"
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
+_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]*$")
+# First-word noise from headers/footers/hints of `agent models`. Extend here
+# if a real run leaks a non-id into the picker.
+_NOT_IDS = {
+    "available", "models", "model", "loading", "fetching", "tip", "tips", "use",
+    "usage", "to", "run", "note", "hint", "see", "select", "current", "default",
+    "you", "press", "for", "no",
+}
+
+
+def parse_cursor_models(text):
+    # `agent models` output format is not pinned down, so extract defensively:
+    # strip ANSI, drop blank lines, drop leading bullet/check glyphs, take the
+    # first whitespace-delimited token of each line, keep it only if it looks
+    # like a model id and is not a known header/footer word. Order preserved,
+    # duplicates dropped.
+    ids = []
+    for line in _ANSI.sub("", text).splitlines():
+        line = line.strip().lstrip("-*•·✓✔>▸▶ \t")
+        if not line:
+            continue
+        tok = line.split()[0]
+        if tok.rstrip(":").lower() in _NOT_IDS or not _MODEL_ID.match(tok):
+            continue
+        if tok not in ids:
+            ids.append(tok)
+    return ids
+
+
+def apply_cursor_env(cfg):
+    # Optional API key file (resolve_token style, but absent = fine: account
+    # auth from `agent login` is used instead).
+    path = os.path.expanduser(cfg.get("key_file") or "")
+    if path and os.path.isfile(path):
+        os.environ["CURSOR_API_KEY"] = resolve_token(path)
+
+
+def list_cursor_models(cfg):
+    r = subprocess.run(cfg["listcmd"], shell=True, capture_output=True, text=True)
+    ids = parse_cursor_models(r.stdout) if r.returncode == 0 else []
+    if not ids:
+        sys.exit(CURSOR_HINT)
+    return ids
+
+
 def parse_args(argv):
     resume = False
     cli = None
@@ -344,13 +404,13 @@ def main():
     if cli and cli not in SUPPORTED:
         sys.exit(f"unknown cli: {cli} (supported: {', '.join(SUPPORTED)})")
     if not cli:
-        # clis present across providers — effectively the SUPPORTED three,
+        # clis present across providers — effectively the SUPPORTED four,
         # minus anything not yet configured; sorted for a stable fzf order.
         clis = sorted({c for p in providers.values() for c in (p.get("clis") or {})})
         cli = fzf_pick(clis, "cli> ")
         if not cli:
             sys.exit(130)
-    require_binary(cli)
+    binary = require_binary(cli)
     cands = sorted(n for n, p in providers.items() if cli in (p.get("clis") or {}))
     if not cands:
         sys.exit(f"no provider serves cli '{cli}' in {CFG}")
@@ -389,6 +449,13 @@ def main():
         # positional after the flags (`codex --profile p -m m resume --last`).
         args = ["--profile", f"ai-{provider}", "-m", model,
                 *(["resume", "--last"] if resume else []), *rest]
+    elif cli == "cursor":
+        apply_cursor_env(cfg)
+        if not model:
+            model = fzf_pick(list_cursor_models(cfg), f"{provider}> ")
+            if not model:
+                sys.exit(130)
+        args = ["--model", model, *(["--continue"] if resume else []), *rest]
     else:  # opencode
         apply_opencode_env(cfg, providers)
         if not model:
@@ -399,7 +466,7 @@ def main():
         args = [*(["--model", model] if model else []),
                 *(["--continue"] if resume else []), *rest]
     sys.stderr.write(f"→ cli={cli} provider={provider} model={model}\n")
-    os.execvpe(cli, [cli, *args], os.environ)
+    os.execvpe(binary, [binary, *args], os.environ)
 
 
 if __name__ == "__main__":

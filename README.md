@@ -83,6 +83,7 @@ hooks/skills installed by `install.sh` do not apply to it. Install the CLI with
 | provider    | claude        | codex                  | opencode                 |
 |-------------|---------------|------------------------|--------------------------|
 | anthropic   | ✅ native     | —                      | ✅                       |
+| bedrock     | ✅ native (Bedrock mode) | —          | —                        |
 | ollama      | ✅            | —                      | ✅                       |
 | openrouter  | ✅ (documented) | ✅                   | ✅                       |
 | poe         | ✅ (documented, untested: key invalid) | ⚠ (untested: key invalid) | ✅ (catalog) |
@@ -103,6 +104,63 @@ Notes:
 - zai: the Coding Plan weekly quota can block calls (quota, not a compat issue).
 - cursor: launcher-only; models come from the Cursor account (Grok via the
   subscription). Named models need a paid Cursor plan; free plans are Auto-only.
+- bedrock: claude-only (no Responses wire for codex, no single-token auth for
+  opencode); setup below.
+
+### bedrock setup
+
+AWS Bedrock runs claude code in its native Bedrock mode (`CLAUDE_CODE_USE_BEDROCK=1`,
+SigV4 off the standard AWS env chain — no `ANTHROPIC_BASE_URL`/token assembly;
+the block in providers.yaml is `native` + an env_file with the creds).
+
+1. IAM user with a least-privilege policy (replace `<ACCOUNT_ID>` with yours):
+
+       {
+         "Version": "2012-10-17",
+         "Statement": [
+           {
+             "Effect": "Allow",
+             "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+             "Resource": [
+               "arn:aws:bedrock:*:::foundation-model/anthropic.*",
+               "arn:aws:bedrock:*:<ACCOUNT_ID>:inference-profile/*"
+             ]
+           },
+           {
+             "Effect": "Allow",
+             "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles", "bedrock:GetFoundationModel"],
+             "Resource": "*"
+           }
+         ]
+       }
+
+   The Invoke* statement covers anthropic foundation models plus your inference
+   profiles; the List*/Get* statement exists only so the model picker's live
+   catalogue (listcmd in providers.yaml) works. Create an access key pair for
+   the user.
+
+2. One-time: Bedrock console → Model access → enable the Anthropic models.
+   The region must carry them (eu-north-1 does not — use e.g. eu-central-1).
+
+3. Creds into `~/.secrets/aws-bedrock` (chmod 600):
+
+       AWS_ACCESS_KEY_ID=<id>
+       AWS_SECRET_ACCESS_KEY=<secret>
+       AWS_REGION=<region, e.g. eu-central-1>
+
+   `AWS_SESSION_TOKEN=<token>` line optional (temporary credentials). Bearer
+   alternative: a single `AWS_BEARER_TOKEN_BEDROCK=<bedrock api key>` line
+   instead of the key pair — but bearer auth does not cover the control-plane
+   List* calls the listcmd uses, so the picker then falls back to the static
+   model list.
+
+4. Smoke test:
+
+       ai --cli claude --provider bedrock --model anthropic.claude-sonnet-5-5 -p hi
+
+Only `anthropic.*` ids respond on the Anthropic Messages wire — the live
+catalogue deliberately lists every Bedrock model for completeness, but
+non-anthropic ids 400 when picked.
 
 ## Status
 

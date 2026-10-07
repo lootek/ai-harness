@@ -138,6 +138,73 @@ providers:
         provider_id: anthropic
         listcmd: opencode models anthropic
 
+  bedrock:
+    # AWS Bedrock — claude code's native Bedrock mode: SigV4 off the standard
+    # AWS env chain (or AWS_BEARER_TOKEN_BEDROCK = a Bedrock console API key).
+    # claude only: Bedrock serves no OpenAI-Responses wire (codex) and wants a
+    # full credential chain rather than one token (opencode) — nothing to wire.
+    #
+    # Creds live in the env_file, NOT here (this file is public). IAM user with
+    # bedrock:InvokeModel + InvokeModelWithResponseStream on anthropic
+    # foundation models + inference profiles and the List* control-plane reads
+    # (least-privilege policy in README) → access key pair. Then:
+    #   printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_REGION=%s\n' \
+    #     <id> <secret> <region> > ~/.secrets/aws-bedrock && chmod 600 ~/.secrets/aws-bedrock
+    # AWS_SESSION_TOKEN line optional. Bearer alternative: a single
+    # AWS_BEARER_TOKEN_BEDROCK=<api key> line instead of the key pair — but
+    # bearer auth does not cover the control-plane List* calls the listcmd
+    # uses, so the picker then falls back to the static list.
+    # Also one-time: Bedrock console → Model access → enable Anthropic models
+    # (region must carry them; eu-north-1 does not — use e.g. eu-central-1).
+    clis:
+      claude:
+        # native: no ANTHROPIC_BASE_URL/AUTH_TOKEN assembly — bedrock is not a
+        # BYO anthropic-wire gateway; claude code authenticates itself.
+        native: true
+        env_file: ~/.secrets/aws-bedrock
+        # Aim opus/sonnet/haiku/subagent slots at the picked model — claude
+        # code's default slot ids don't resolve on bedrock.
+        route_slots_to_model: true
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1"
+          # No first-party key here: stop upgrade-check/telemetry pings to
+          # api.anthropic.com (same as zai).
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        # Live catalogue in the env_file's region: ACTIVE system/application
+        # inference profiles (us./eu. prefixed ids — cross-region, better
+        # throughput) plus every foundation model, deduped. Deliberately
+        # UNFILTERED ("all models supported on bedrock") — but claude code
+        # only speaks the Anthropic Messages wire, so non-anthropic.* entries
+        # will 400 when picked; they're listed for completeness, not for `ai`.
+        # No aws CLI / no creds → static fallback (live list wins once set
+        # up). [1m] variants: claude code >= 2.1.212 honors the suffix on any
+        # provider; the claude-5 family is 1M-context.
+        listcmd: |
+          ids=$(
+            {
+              aws bedrock list-inference-profiles --output json 2>/dev/null \
+                | jq -r '.inferenceProfileSummaries[]? | select(.status == "ACTIVE") | .inferenceProfileId'
+              aws bedrock list-foundation-models --output json 2>/dev/null \
+                | jq -r '.modelSummaries[]? | select((.modelLifecycle.status // "ACTIVE") == "ACTIVE") | .modelId'
+            } | sort -u
+          )
+          if [[ -z "$ids" ]]; then
+            ids=$(for m in \
+              anthropic.claude-fable-5-1 \
+              anthropic.claude-fable-5 \
+              anthropic.claude-opus-5-5 \
+              anthropic.claude-opus-5 \
+              anthropic.claude-opus-4-8 \
+              anthropic.claude-sonnet-5-5 \
+              anthropic.claude-sonnet-5 \
+              anthropic.claude-haiku-4-5 \
+            ; do printf '%s\n' "$m"; done)
+          fi
+          printf '%s\n' "$ids" | awk '
+            { print }
+            /anthropic\.claude-(fable|opus|sonnet)-5/ { print $0 "[1m]" }
+          '
+
   ollama:
     clis:
       claude:

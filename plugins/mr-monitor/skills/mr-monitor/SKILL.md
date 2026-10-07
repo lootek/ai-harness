@@ -26,6 +26,7 @@ First, cd once and stay in the repo dir while working on it, avoid chaininig `cd
    - If already addressed: note resolution
 3. **Wait 5 minutes**, repeat from step 1
 4. **Exit** when: pipeline green AND all discussions resolved
+5. **Set Auto-Merge** after exiting the loop
 
 ## Rules
 

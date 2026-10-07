@@ -88,6 +88,31 @@ def resolve_token(v):
     return v
 
 
+def read_env_file(v, required=True):
+    # env_file (claude blocks): KEY=VALUE lines exported before the literal
+    # `env` map — the multi-secret case a single `token` file cannot express
+    # (Bedrock wants access key + secret + region, not one bearer value).
+    # '#' comments and blank lines ignored; surrounding quotes stripped.
+    if not v:
+        return {}
+    path = os.path.expanduser(str(v))
+    try:
+        with open(path) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        if required:
+            sys.exit(f"env_file not found: {path}")
+        return {}
+    out = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, val = line.partition("=")
+        out[k.strip()] = val.strip().strip('"').strip("'")
+    return out
+
+
 def fzf_pick(lines, prompt):
     if not lines:
         return ""
@@ -214,6 +239,7 @@ def apply_claude_env(cfg, providers):
     volatile = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS", *SLOT_VARS}
     for pcfg in providers.values():
         volatile.update((((pcfg.get("clis") or {}).get("claude") or {}).get("env") or {}).keys())
+        volatile.update(read_env_file(((pcfg.get("clis") or {}).get("claude") or {}).get("env_file"), required=False))
     for k in list(os.environ):
         if k.startswith("ANTHROPIC_") or k in volatile:
             del os.environ[k]
@@ -240,6 +266,9 @@ def apply_claude_env(cfg, providers):
     # does that). Exported after the ANTHROPIC_* clear above, so keys
     # starting with ANTHROPIC_ survive. ANTHROPIC_MODEL is set later in
     # main() from the fzf pick, overriding anything here.
+    # env_file keys go first — a literal `env` entry with the same name wins.
+    for k, v in read_env_file(cfg.get("env_file")).items():
+        os.environ[k] = str(v)
     for k, v in (cfg.get("env") or {}).items():
         os.environ[k] = str(v)
 

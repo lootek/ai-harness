@@ -4,8 +4,9 @@
 # token, e.g. ~/.secrets/openrouter — resolved once, whitespace stripped) plus
 # a `clis` map; a cli block may carry its own `token:` overriding it.
 #
-#   clis.claude:   base_url, token?, api_key?, native, max_output_tokens,
+#   clis.claude:   base_url, token?, api_key?, native, env_file?, max_output_tokens,
 #                  route_slots_to_model, env, listcmd
+#                  env_file: KEY=VALUE lines exported before env (multi-secret).
 #   clis.codex:    base_url, env_key, model_transform?, toml?, listcmd. ai.py
 #                  exports <env_key>=<token> and generates
 #                  $CODEX_HOME/ai-<provider>.config.toml

@@ -519,6 +519,11 @@ def test_not_allow_explicit(cmd: str, label: str):
 # ASK_CASES because the risky shapes are the compounds: a pre-approved verb in
 # the same command must NOT let the chflags segment ride through on an
 # explicit-allow.
+#
+# NOTE (2026-09-23): an `ask` here is advisory only — the harness decides what
+# to do with it, and under auto mode the classifier can answer on the user's
+# behalf, so an unlock can go through unseen. Enforcing a real prompt is a
+# harness-level concern, not something this hook can guarantee.
 ALWAYS_ASK_CASES: list[str] = [
     "chflags nouchg ~/.claude/settings.json",
     "chflags uchg ~/.claude/settings.json",
@@ -535,6 +540,29 @@ ALWAYS_ASK_CASES: list[str] = [
     "acli jira workitem comment list --key X-1 && acli jira workitem comment create --key X-1 --body y",
     ("glab api --method POST projects/1/merge_requests/2/notes --field body=x "
      "&& acli jira workitem comment create --key X-1 --body y"),
+    # chflags reached through a wrapper, so it is not argv[0] of its segment.
+    # The same shapes already special-cased for `rm` (check_find_delete,
+    # check_xargs_rm), plus `sh -c`, where the command hides inside one token
+    # and segmenting cannot see it. All six returned `allow` before 2026-09-24.
+    "ls ~/.claude/*.json | xargs chflags nouchg",
+    "xargs -0 chflags nouchg < list.txt",
+    "find ~/.claude -name settings.json -exec chflags nouchg {} +",
+    "find ~/.claude -name settings.json -execdir chflags nouchg {} +",
+    "bash -c 'chflags nouchg ~/.claude/settings.json'",
+    "sh -c \"chflags nouchg x\"",
+    # Siblings of the six above: wrappers nested in wrappers, other runners.
+    "xargs -I{} sh -c 'chflags nouchg {}' < list.txt",
+    "find ~/.claude -name '*.json' -ok chflags nouchg {} ';'",
+    "find . -exec sh -c 'chflags nouchg \"$1\"' _ {} ';'",
+    "nohup chflags nouchg x",
+    "timeout 5 chflags nouchg x",
+    "timeout -s KILL 5 chflags nouchg x",
+    "env -i FOO=1 chflags nouchg x",
+    "command chflags nouchg x",
+    "eval 'chflags nouchg x'",
+    "bash -lc 'cd ~/.claude && chflags nouchg settings.json'",
+    "zsh -c 'FOO=1 chflags nouchg x'",
+    "/usr/bin/xargs /usr/bin/chflags nouchg < list.txt",
 ]
 
 
@@ -543,6 +571,28 @@ def test_always_ask(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "ask", (
         f"chflags must always prompt, got {decision} for {cmd!r}: {reason}"
+    )
+
+
+# Commands that only mention chflags as data. Asking on these would train the
+# user to wave chflags prompts through, which is worse than the bypass itself —
+# so the wrapper detection works by command position, never by token match.
+CHFLAGS_MENTION_CASES: list[str] = [
+    "grep -n chflags notes.md",
+    "rg chflags ~/.claude/hooks",
+    "xargs grep -l chflags < files.txt",
+    "find . -name chflags",
+    "echo chflags",
+    "man chflags",
+    "timeout 5 grep chflags notes.md",
+]
+
+
+@pytest.mark.parametrize("cmd", CHFLAGS_MENTION_CASES, ids=lambda c: c[:60])
+def test_chflags_mention_does_not_ask(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "ask" or "chflags" not in reason, (
+        f"mentioning chflags must not prompt as a chflags run: {cmd!r}: {reason}"
     )
 
 

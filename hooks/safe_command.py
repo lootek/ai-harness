@@ -2,8 +2,8 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.6.0
-Last reviewed:   2026-09-21
+Version:         2.7.0
+Last reviewed:   2026-10-07
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
                  wildcards, and Edit/Write(~/**) — this hook is the last
@@ -1013,10 +1013,102 @@ def ask_kill(argv: list[str]) -> str | None:
     return None
 
 
-def ask_chflags(argv: list[str]) -> str | None:
-    if argv and _basename(argv[0]) == "chflags":
-        return f"chflags {' '.join(argv[1:])[:80]} — file-flag change (e.g. uchg lock); confirm"
+# Commands that run another command given on their own command line. Each maps
+# to the options that consume the next token, so the wrapped command can be
+# found by position instead of by matching any token named `chflags` — which
+# would also fire on `xargs grep chflags`. `timeout` additionally takes one
+# positional (the duration) before the command.
+_EXEC_WRAPPERS: dict[str, set[str]] = {
+    "xargs": {"-I", "-L", "-n", "-P", "-s", "-E", "-d", "-J", "-R", "-S", "-a"},
+    "env": {"-u", "-C", "-S"},
+    "nice": {"-n"},
+    "nohup": set(),
+    "time": set(),
+    "command": set(),
+    "exec": {"-a"},
+    "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "doas": {"-u", "-C"},
+    "caffeinate": {"-t", "-w"},
+    "stdbuf": {"-i", "-o", "-e"},
+}
+_SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"}
+_FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+_MAX_WRAP_DEPTH = 4
+
+
+def _wrapped_command(argv: list[str]) -> list[str] | None:
+    """argv of the command an exec-wrapper runs, or None if there is none."""
+    head = _basename(argv[0])
+    takes_value = _EXEC_WRAPPERS[head]
+    positionals = 1 if head == "timeout" else 0
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+        if tok in takes_value:
+            i += 2
+            continue
+        if tok.startswith("-") or (head == "env" and _ENV_ASSIGN_RE.match(tok)):
+            i += 1
+            continue
+        if positionals:
+            positionals -= 1
+            i += 1
+            continue
+        return argv[i:]
     return None
+
+
+def _shell_script(argv: list[str]) -> str | None:
+    """The script text of `sh -c '…'` / `bash -lc '…'` / `eval …`, else None."""
+    head = _basename(argv[0])
+    if head == "eval":
+        return " ".join(argv[1:]) or None
+    if head not in _SHELLS:
+        return None
+    for i, tok in enumerate(argv[1:], start=1):
+        if tok == "--":
+            return None
+        if tok.startswith("-") and not tok.startswith("--") and "c" in tok[1:]:
+            return argv[i + 1] if i + 1 < len(argv) else None
+    return None
+
+
+def _runs_chflags(argv: list[str], depth: int = 0) -> str | None:
+    """Name of the outermost wrapper when this argv ends up executing chflags
+    ('' when chflags is argv[0] itself), else None."""
+    if not argv or depth > _MAX_WRAP_DEPTH:
+        return None
+    head = _basename(argv[0])
+    if head == "chflags":
+        return ""
+    inner: list[list[str]] = []
+    if head in _EXEC_WRAPPERS:
+        wrapped = _wrapped_command(argv)
+        if wrapped:
+            inner.append(wrapped)
+    elif head == "find":
+        inner.extend(argv[i + 1:] for i, a in enumerate(argv)
+                     if a in _FIND_EXEC and i + 1 < len(argv))
+    else:
+        script = _shell_script(argv)
+        if script:
+            for seg in split_segments(normalize(script)):
+                toks = tokenize(seg)
+                stripped = strip_env_prefix(toks)
+                inner.extend([toks, stripped, strip_sudo_prefix(stripped)])
+    for sub in inner:
+        if _runs_chflags(sub, depth + 1) is not None:
+            return head
+    return None
+
+
+def ask_chflags(argv: list[str]) -> str | None:
+    via = _runs_chflags(argv) if argv else None
+    if via is None:
+        return None
+    if via == "":
+        return f"chflags {' '.join(argv[1:])[:80]} — file-flag change (e.g. uchg lock); confirm"
+    return f"chflags via {via} — file-flag change (e.g. uchg lock); confirm"
 
 
 def ask_install(argv: list[str]) -> str | None:

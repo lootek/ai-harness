@@ -928,3 +928,53 @@ def test_file_write_blocks_explicit_allow(cmd: str):
 def test_harmless_redirect_keeps_explicit_allow(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+# ── a neutral filter that runs or writes something is not neutral (v2.7.8) ──
+# rg --pre/--hostname-bin and sort --compress-program spawn a program; sort -o,
+# a second uniq operand and yq -i/-s write files; yq can switch on `system`.
+# Short clusters follow getopt: a value-taking letter swallows the rest.
+FILTER_EXEC_WRITE_CASES = [
+    "git push origin main && rg --pre ./x.sh foo .",
+    "git push origin main && rg --pre=./x.sh foo .",
+    "git push origin main 2>&1 | rg -i --pre-glob '*.pdf' --pre ./x foo",
+    "git push origin main && rg --hostname-bin=./x --hyperlink-format default foo",
+    "git push origin main | sort --compress-program=./x",
+    "git push origin main | sort --compress-p ./x",
+    "git push origin main | sort --co=./x",
+    "git push origin main | sort -o out.txt",
+    "git push origin main | sort -ruo out.txt",
+    "git push origin main | sort --output=out.txt",
+    "git push origin main | sort --out out.txt",
+    "git push origin main && uniq in.txt out.txt",
+    "git push origin main && uniq -c -f 1 in.txt out.txt",
+    "git push origin main && uniq -- -in -out",
+    "git push origin main && yq -i '.a=1' f.yaml",
+    "git push origin main && yq -Pi '.a=1' f.yaml",
+    "git push origin main && yq --inplace '.a=1' f.yaml",
+    "git push origin main && yq -s '.name' f.yaml",
+    "git push origin main && yq --split-exp-file e.txt f.yaml",
+    "git push origin main && yq --security-enable-system-operator '.a' f.yaml",
+]
+FILTER_READ_CASES = [
+    "git push origin main 2>&1 | rg -i rejected",
+    "git push origin main 2>&1 | rg --no-pre -z foo",
+    "git push origin main 2>&1 | sort | uniq -c",
+    "git push origin main 2>&1 | sort -t: -k2 -u",
+    "git push origin main 2>&1 | sort -to -T scratch -S 1M",
+    "git push origin main 2>&1 | uniq -f 1 -",
+    "git push origin main 2>&1 | yq -o json -P '.a'",
+    "git push origin main 2>&1 | yq -pi -oi '.a'",
+]
+
+
+@pytest.mark.parametrize("cmd", FILTER_EXEC_WRITE_CASES, ids=lambda c: c[23:70])
+def test_filter_that_runs_or_writes_is_not_neutral(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", FILTER_READ_CASES, ids=lambda c: c[23:70])
+def test_read_only_filter_stays_neutral(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"

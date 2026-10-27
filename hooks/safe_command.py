@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.7
+Version:         2.7.8
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -1585,6 +1585,65 @@ def _redirects_to_file(argv: list[str]) -> bool:
     return False
 
 
+def _cluster_has(tok: str, hits: str, valued: str) -> bool:
+    """getopt `-abc` cluster: True when a letter in `hits` comes before a
+    letter in `valued`, which takes the rest of the token as its value."""
+    for ch in tok[1:]:
+        if ch in hits:
+            return True
+        if ch in valued:
+            return False
+    return False
+
+
+def _uniq_operands(args: list[str]) -> int:
+    n, i = 0, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            return n + len(args) - i - 1
+        if a in ("--skip-fields", "--skip-chars", "--check-chars"):
+            i += 1
+        elif a.startswith("-") and a != "-" and not a.startswith("--"):
+            for j, ch in enumerate(a[1:], 1):
+                if ch in "fsw":
+                    if j == len(a) - 1:
+                        i += 1
+                    break
+        elif not a.startswith("--"):
+            n += 1
+        i += 1
+    return n
+
+
+def _filter_runs_or_writes(cmd: str, args: list[str]) -> bool:
+    """The read-only filters each have a flag that spawns a program or writes a
+    file. Scans every token, values included: a false hit only costs the
+    segment its neutral status."""
+    if cmd == "rg":
+        return any(a.split("=", 1)[0] in ("--pre", "--hostname-bin") for a in args)
+    if cmd == "sort":
+        for a in args:
+            name = a.split("=", 1)[0]
+            # getopt_long takes any unambiguous prefix: --co, --o.
+            if a.startswith("--") and (
+                    (len(name) >= 4 and "--compress-program".startswith(name))
+                    or (len(name) >= 3 and "--output".startswith(name))):
+                return True
+            if a.startswith("-") and not a.startswith("--") and _cluster_has(a, "o", "ktST"):
+                return True
+        return False
+    if cmd == "uniq":
+        return _uniq_operands(args) >= 2
+    if cmd == "yq":
+        return any(
+            a.split("=", 1)[0] in ("--inplace", "--split-exp", "--split-exp-file",
+                                   "--security-enable-system-operator")
+            or (a.startswith("-") and not a.startswith("--") and _cluster_has(a, "is", "fIpo"))
+            for a in args)
+    return False
+
+
 def _is_neutral_segment(argv: list[str]) -> bool:
     if not argv:
         return True
@@ -1600,7 +1659,7 @@ def _is_neutral_segment(argv: list[str]) -> bool:
     if cmd == "printf" and any(a.startswith("-v") for a in argv[1:]):
         return False
     if cmd in NEUTRAL_CMDS:
-        return True
+        return not _filter_runs_or_writes(cmd, argv[1:])
     if cmd in ("gh", "glab"):
         return ask_gh_glab(argv) is None
     return False

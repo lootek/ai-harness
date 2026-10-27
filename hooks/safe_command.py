@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.4
+Version:         2.7.5
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -27,7 +27,8 @@ Evaluator:
   5. Apply ASK rules (legitimate-but-risky). First match → ask, unless 6
      clears it.
   6. Explicit ALLOW for a tight pre-approved verb set, but only when every
-     other segment of the command is neutral (see ALLOW_PREDICATES).
+     other segment of the command is neutral (see ALLOW_PREDICATES) and
+     the raw text carries no substitution (see _hides_code).
   7. Otherwise allow silently.
 
 Fail-closed: any uncaught exception → deny("hook internal error").
@@ -48,6 +49,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Env-overridable audit trail: AI_SAFE_COMMAND_AUDIT (absolute path) lets the
 # codex/opencode adapters — and tests — share or redirect the log without
@@ -1158,11 +1160,65 @@ def _http_method_from_curl(argv: list[str]) -> str | None:
     return implied
 
 
-def _find_url(argv: list[str]) -> str:
-    for a in argv[1:]:
-        if re.match(r"https?://", a):
-            return a
-    return "?"
+# curl options that consume the next token. Only list options that truly take
+# a value: a wrong entry would skip the URL after it. A missing one only makes
+# its value look like a URL, which fails the allowlist and asks.
+_CURL_ARG_SHORT = set("dHXoAbceFuwmTKx")
+_CURL_ARG_LONG = {
+    "--data", "--data-ascii", "--data-binary", "--data-raw", "--data-urlencode",
+    "--json", "--header", "--request", "--output", "--output-dir", "--user-agent",
+    "--cookie", "--cookie-jar", "--referer", "--form", "--form-string", "--user",
+    "--write-out", "--max-time", "--connect-timeout", "--upload-file", "--retry",
+    "--retry-delay", "--retry-max-time", "--oauth2-bearer", "--aws-sigv4",
+    "--url-query", "--config", "--proxy", "--preproxy", "--connect-to", "--resolve",
+}
+# Options that add destinations or send the request somewhere other than its
+# URL, so no URL check can vouch for the command.
+_CURL_REROUTE_SHORT = set("K:x")
+_CURL_REROUTE_LONG = {
+    "--config", "--next", "--connect-to", "--resolve", "--proxy", "--preproxy",
+    "--socks4", "--socks4a", "--socks5", "--socks5-hostname", "--doh-url",
+    "--unix-socket", "--abstract-unix-socket",
+}
+
+
+def _curl_targets(argv: list[str]) -> tuple[list[str], bool]:
+    """Every URL operand (curl takes any non-option word as a URL, scheme or
+    not) and whether an option reroutes or adds destinations."""
+    urls: list[str] = []
+    rerouted = False
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--url":
+            urls.append(argv[i + 1] if i + 1 < len(argv) else "")
+            i += 1
+        elif a.startswith("--url="):
+            urls.append(a.split("=", 1)[1])
+        elif a.startswith("--"):
+            rerouted |= a.split("=", 1)[0] in _CURL_REROUTE_LONG
+            if a in _CURL_ARG_LONG:
+                i += 1
+        elif a.startswith("-") and len(a) > 1:
+            for k, ch in enumerate(a[1:], start=1):
+                rerouted |= ch in _CURL_REROUTE_SHORT
+                if ch in _CURL_ARG_SHORT:
+                    if k == len(a) - 1:
+                        i += 1  # value is the next token, not glued on
+                    break
+        else:
+            urls.append(a)
+        i += 1
+    return urls, rerouted
+
+
+def _under_prefix(url: str, prefix: str) -> bool:
+    """Prefix match that ends on a URL boundary, so an entry for https://host
+    never matches https://host.evil, https://host@evil or https://host:8443."""
+    if not url.startswith(prefix) or not urlsplit(prefix).hostname:
+        return False
+    rest = url[len(prefix):]
+    return not rest or rest[0] in "/?#" or prefix[-1] in "/?#"
 
 
 # Read-only API endpoints that are safe to POST to without a prompt
@@ -1174,7 +1230,8 @@ def _find_url(argv: list[str]) -> str:
 # Same arrangement as populate.sh's .leak-patterns.local: site-specific values
 # stay out of this repo, and out of settings.json — which local credential
 # tooling may rewrite wholesale, taking anything parked there with it.
-# Matched as a prefix against the curl URL.
+# Matched as a prefix, ending on a URL boundary, against every URL in the
+# command.
 CURL_POST_ALLOW_FILE = Path(
     os.environ.get("CC_CURL_POST_ALLOW_FILE")
     or Path(__file__).resolve().parent / ".curl-post-allow.local"
@@ -1215,14 +1272,17 @@ def ask_curl(argv: list[str]) -> str | None:
     if not argv or _basename(argv[0]) != "curl":
         return None
     method = _http_method_from_curl(argv)
-    if method:
-        url = _find_url(argv)
-        if any(url.startswith(p) for p in CURL_POST_ALLOW_PREFIXES):
-            return None  # harmless read-only query endpoint
-        if LOCAL_REFRESH_RE.match(url):
-            return None  # local dashboard refresh; nothing leaves the machine
-        return f"curl {method} {url} — confirm target + payload"
-    return None
+    if not method:
+        return None
+    urls, rerouted = _curl_targets(argv)
+    # Read-only query endpoints and the local dashboard refresh pass, but only
+    # when every destination in the command is one of them.
+    blocked = [u for u in urls
+               if not LOCAL_REFRESH_RE.match(u)
+               and not any(_under_prefix(u, p) for p in CURL_POST_ALLOW_PREFIXES)]
+    if urls and not blocked and not rerouted:
+        return None
+    return f"curl {method} {(blocked or urls or ['?'])[0]} — confirm target + payload"
 
 
 def ask_httpie(argv: list[str]) -> str | None:
@@ -1516,11 +1576,63 @@ def _is_neutral_segment(argv: list[str]) -> bool:
     if _redirects_to_file(argv):
         return False
     cmd = _basename(argv[0])
+    # bash 5 and zsh expand an array subscript in the -v name, $(…) included,
+    # even when it was single-quoted.
+    if cmd == "printf" and any(a.startswith("-v") for a in argv[1:]):
+        return False
     if cmd in NEUTRAL_CMDS:
         return True
     if cmd in ("gh", "glab"):
         return ask_gh_glab(argv) is None
     return False
+
+
+_SIMPLE_PARAM_RE = re.compile(
+    r"\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9?!@*-]|\{[A-Za-z_][A-Za-z0-9_]*\})")
+
+
+def _hides_code(command: str) -> bool:
+    """True when the shell may run code that no segment shows: command, process
+    or arithmetic substitution, ${…} operators, $'…', zsh glob qualifiers and
+    subscripts, heredocs. Comments and unclosed quotes count too, because they
+    leave the quote state in doubt. Wherever unsure, it says True."""
+    i, n, dq = 0, len(command), False
+    while i < n:
+        c = command[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "`":
+            return True
+        if c == "$":
+            m = _SIMPLE_PARAM_RE.match(command, i)
+            if not m:
+                nxt = command[i + 1:i + 2]
+                # plain text only before a char no shell expands after `$`,
+                # e.g. a regex anchor in grep "x$|y$"
+                if nxt and not nxt.isspace() and nxt not in "|/.:,;&<>)]}%" \
+                        and not (dq and nxt == '"'):
+                    return True
+                i += 1
+                continue
+            i = m.end()
+            if i < n and command[i] == "[":
+                return True  # zsh subscript: arithmetic context
+            continue
+        if dq:
+            dq = c != '"'
+        elif c == '"':
+            dq = True
+        elif c == "'":
+            end = command.find("'", i + 1)
+            if end < 0:
+                return True
+            i = end + 1
+            continue
+        elif c in "()#" or command.startswith("<<", i):
+            return True
+        i += 1
+    return dq
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1650,7 +1762,9 @@ def evaluate(command: str) -> tuple[str, str]:
          filters — see _is_neutral_segment). That stops a compound like
          `glab mr create && curl …` from riding the allow past the ASK that its
          second segment would otherwise raise, while still clearing the
-         `cd repo && <pre-approved> | jq` shape that real commands take.
+         `cd repo && <pre-approved> | jq` shape that real commands take. Any
+         substitution or other code the segments cannot show voids it
+         (_hides_code): `git push $(…)` is one segment, but the body runs.
       4. Otherwise                → allow (silent default; no prompt anyway).
 
     The distinction between step 3 (explicit allow) and step 4 (implicit
@@ -1724,7 +1838,7 @@ def evaluate(command: str) -> tuple[str, str]:
         elif not any(_is_neutral_segment(av) for av in argvs):
             all_segments_ok = False
 
-    if saw_segment and explicit_hit and all_segments_ok:
+    if saw_segment and explicit_hit and all_segments_ok and not _hides_code(command):
         return "allow-explicit", "pre-approved command"
 
     if ask_hit is None:

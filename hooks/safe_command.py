@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.6
+Version:         2.7.7
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -1552,11 +1552,25 @@ NEUTRAL_CMDS = {
 
 _REDIR_RE = re.compile(r"^(\d*|&)>>?(.*)$")
 
+# Redirect targets that cannot plant anything: the null/std devices, or a
+# scratch path under /tmp or relative to the cwd whose every component starts
+# with a plain char, so no dotfile, dot-dir or `..`. Quotes, `~` and `$`
+# never match, so the shell cannot expand the target somewhere else.
+_SCRATCH_TARGET_RE = re.compile(
+    r"(?:/tmp/|/private/tmp/)?"
+    r"[A-Za-z0-9_@%+=:,-][A-Za-z0-9._@%+=:,-]*"
+    r"(?:/[A-Za-z0-9_@%+=:,-][A-Za-z0-9._@%+=:,-]*)*")
+
+
+def _harmless_target(target: str) -> bool:
+    return (target in ("/dev/null", "/dev/stdout", "/dev/stderr")
+            or _SCRATCH_TARGET_RE.fullmatch(target) is not None)
+
 
 def _redirects_to_file(argv: list[str]) -> bool:
-    """True when a segment writes output anywhere but /dev/null. Unknown `>`
-    shapes count as a write — the safe direction, since a false positive only
-    costs the segment its neutral status."""
+    """True when a segment writes output anywhere but a harmless target.
+    Unknown `>` shapes count as a write — the safe direction, since a false
+    positive only costs the segment its neutral status."""
     for i, tok in enumerate(argv):
         m = _REDIR_RE.match(tok)
         if not m:
@@ -1565,7 +1579,7 @@ def _redirects_to_file(argv: list[str]) -> bool:
             continue
         target = m.group(2) or (argv[i + 1] if i + 1 < len(argv) else "")
         # `2>&1` survives segmentation as a trailing `2>` plus a bare `1`.
-        if target in ("", "/dev/null") or target.lstrip("&").isdigit():
+        if not target or target.lstrip("&").isdigit() or _harmless_target(target):
             continue
         return True
     return False
@@ -1574,8 +1588,10 @@ def _redirects_to_file(argv: list[str]) -> bool:
 def _is_neutral_segment(argv: list[str]) -> bool:
     if not argv:
         return True
+    # Leftovers of `2>&1` / `&>x` split on `&`: a bare fd, or a bare redirect,
+    # which is only neutral when its target is.
     if len(argv) == 1 and (argv[0].isdigit() or _REDIR_RE.match(argv[0])):
-        return True
+        return argv[0].isdigit() or not _redirects_to_file(argv)
     if _redirects_to_file(argv):
         return False
     cmd = _basename(argv[0])
@@ -1636,6 +1652,44 @@ def _hides_code(command: str) -> bool:
             return True
         i += 1
     return dq
+
+
+def _writes_file(command: str) -> bool:
+    """True when an unquoted `>` in any form (`>`, `>>`, `>|`, `&>`, `>&`,
+    `<>`) points anywhere but a harmless target or an fd dup like `2>&1`.
+    Reads raw text, so quoted `a > b` in an MR note is not a redirect."""
+    i, n, dq = 0, len(command), False
+    while i < n:
+        c = command[i]
+        if c == "\\":
+            i += 2
+            continue
+        if dq:
+            dq = c != '"'
+        elif c == '"':
+            dq = True
+        elif c == "'":
+            end = command.find("'", i + 1)
+            i = n if end < 0 else end + 1
+            continue
+        elif c == ">":
+            j = i + 1
+            dup = command.startswith("&", j)
+            if j < n and command[j] in ">|&":
+                j += 1
+            while j < n and command[j] in " \t":
+                j += 1
+            k = j
+            while k < n and command[k] not in " \t\n;&|<>()":
+                k += 1
+            target = command[j:k]
+            if not _harmless_target(target) and not (
+                    dup and (target.isdigit() or target == "-")):
+                return True
+            i = k
+            continue
+        i += 1
+    return False
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1768,6 +1822,7 @@ def evaluate(command: str) -> tuple[str, str]:
          `cd repo && <pre-approved> | jq` shape that real commands take. Any
          substitution or other code the segments cannot show voids it
          (_hides_code): `git push $(…)` is one segment, but the body runs.
+         So does a redirect into a file (_writes_file).
       4. Otherwise                → allow (silent default; no prompt anyway).
 
     The distinction between step 3 (explicit allow) and step 4 (implicit
@@ -1841,7 +1896,8 @@ def evaluate(command: str) -> tuple[str, str]:
         elif not any(_is_neutral_segment(av) for av in argvs):
             all_segments_ok = False
 
-    if saw_segment and explicit_hit and all_segments_ok and not _hides_code(command):
+    if (saw_segment and explicit_hit and all_segments_ok
+            and not _hides_code(command) and not _writes_file(command)):
         return "allow-explicit", "pre-approved command"
 
     if ask_hit is None:

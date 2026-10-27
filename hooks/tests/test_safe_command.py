@@ -883,3 +883,48 @@ SQ_BACKSLASH_CASES = [
 def test_backslash_is_literal_in_single_quotes(cmd: str, expected: str):
     decision, reason = evaluate(cmd)
     assert decision == expected, f"{cmd!r}: got {decision} ({reason})"
+
+
+# ── a file write never rides an explicit allow (v2.7.7) ────────────────────
+# `&>file` split off as a lone `>file` segment that counted as neutral, and a
+# redirect on the pre-approved segment itself was never looked at.
+# Scratch targets (/tmp, or relative with no dot component) stay allowed: real
+# MR writes save the API response that way.
+REDIRECT_WRITE_CASES = [
+    "git push origin main &>~/.zshrc",
+    "git push origin main &>> ~/notes.txt",
+    "git push origin main >&.envrc",
+    "git push origin main > ~/.zshrc",
+    "git push origin main 2>$HOME/err.txt",
+    "git push origin main >| .git/hooks/pre-push",
+    "git push origin main <>../out.txt",
+    "git push origin main > /tmp/../etc/x",
+    'git push origin main > "/tmp/x"',
+    "git push origin main > /etc/motd",
+    "glab mr note 2 -m x >/dev/nullx/y/.z",
+    "git push origin main && echo x > bin/.hidden",
+]
+REDIRECT_HARMLESS_CASES = [
+    "git push origin main &>/dev/null",
+    "git push origin main 2>&1 | tail -3",
+    "git push origin main >/dev/null 2>&1",
+    "glab mr note 2 -m 'a -> b and > quoted'",
+    'glab api projects/1/merge_requests/2/notes -X POST --raw-field "body=x > y"',
+    ("glab api --method PUT projects/1/merge_requests/2 --field assignee_id=7 "
+     "> /tmp/mr-assign.json 2>&1"),
+    ("glab api --method PUT 'projects/1/merge_requests/2?assignee_id=7' "
+     "> scratch/assign.json 2>scratch/assign-err.txt"),
+    "glab api --method POST projects/1/merge_requests --input mr.json &>/tmp/resp.json",
+]
+
+
+@pytest.mark.parametrize("cmd", REDIRECT_WRITE_CASES, ids=lambda c: c[:50])
+def test_file_write_blocks_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", REDIRECT_HARMLESS_CASES, ids=lambda c: c[:50])
+def test_harmless_redirect_keeps_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"

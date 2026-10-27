@@ -978,3 +978,40 @@ def test_filter_that_runs_or_writes_is_not_neutral(cmd: str):
 def test_read_only_filter_stays_neutral(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+# ── an env or doas prefix never rides an explicit allow (v2.7.9) ───────────
+# The allow and neutral checks also ran on the prefix-stripped argv, so
+# `GIT_SSH_COMMAND=./x git push` earned the plain `git push` allow. Only
+# `env -u NAME`, which just drops a variable, keeps it.
+PREFIX_RIDE_CASES = [
+    "GIT_SSH_COMMAND=./x git push origin main",
+    "env GIT_SSH_COMMAND=./x git push origin main",
+    "env -u GITLAB_TOKEN GIT_SSH_COMMAND=./x git push origin main",
+    "env -i PATH=./bin git push origin main",
+    "PATH=./bin:$PATH git push origin main",
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand GIT_CONFIG_VALUE_0=./x "
+     "git push origin main"),
+    "GLAB_CONFIG_DIR=./cfg glab mr note 2 -m x",
+    "git push origin main && RIPGREP_CONFIG_PATH=./cfg rg foo",
+    "git push origin main 2>&1 | PATH=./bin rg -z foo",
+    "doas git push origin main",
+]
+ENV_UNSET_CASES = [
+    "env -u GITLAB_TOKEN git push origin main 2>&1 | tail -3",
+    "env -u GITLAB_TOKEN glab mr note 2 -m x",
+    "env -u GITLAB_TOKEN -u GITLAB_HOST glab mr note 2 -m x",
+    "env git push origin main",
+]
+
+
+@pytest.mark.parametrize("cmd", PREFIX_RIDE_CASES, ids=lambda c: c[:60])
+def test_prefix_blocks_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", ENV_UNSET_CASES, ids=lambda c: c[:60])
+def test_env_unset_keeps_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"

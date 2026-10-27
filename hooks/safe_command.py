@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.8
+Version:         2.7.9
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -288,6 +288,14 @@ def strip_env_prefix(argv: list[str]) -> list[str]:
         while i < len(argv) and _ENV_ASSIGN_RE.match(argv[i]):
             i += 1
     return argv[i:] if i < len(argv) else argv
+
+
+def _inert_env_prefix(argv: list[str], stripped: list[str]) -> bool:
+    """`env [-u NAME]…` only drops variables. Any assignment or other env
+    option can point the command at other code."""
+    prefix = argv[:len(argv) - len(stripped)]
+    return (_basename(prefix[0]) == "env" and len(prefix) % 2 == 1
+            and all(f == "-u" for f in prefix[1::2]))
 
 
 _SUDO_CMDS = {"sudo", "doas"}
@@ -1915,6 +1923,11 @@ def evaluate(command: str) -> tuple[str, str]:
         unsudoed = strip_sudo_prefix(stripped)
         if unsudoed != stripped:
             argvs.append(unsudoed)
+        # DENY/ASK look through every prefix; allow/neutral only through one
+        # that cannot change what runs (GIT_SSH_COMMAND=, PATH=, doas).
+        allow_argvs = [argv]
+        if stripped != argv and _inert_env_prefix(argv, stripped):
+            allow_argvs.append(stripped)
 
         # DENY wins immediately, anywhere in the command.
         for av in argvs:
@@ -1943,7 +1956,7 @@ def evaluate(command: str) -> tuple[str, str]:
 
         # Track explicit-allow: one pre-approved segment, the rest neutral.
         seg_allowed = False
-        for av in argvs:
+        for av in allow_argvs:
             for predicate in ALLOW_PREDICATES:
                 if predicate(av):
                     seg_allowed = True
@@ -1952,7 +1965,7 @@ def evaluate(command: str) -> tuple[str, str]:
                 break
         if seg_allowed:
             explicit_hit = True
-        elif not any(_is_neutral_segment(av) for av in argvs):
+        elif not any(_is_neutral_segment(av) for av in allow_argvs):
             all_segments_ok = False
 
     if (saw_segment and explicit_hit and all_segments_ok

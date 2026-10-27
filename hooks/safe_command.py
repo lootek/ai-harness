@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.5
+Version:         2.7.6
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -221,7 +221,7 @@ _SEGMENT_CHARS = {";", "|", "&", "\n"}
 
 
 def split_segments(command: str) -> list[str]:
-    """Split on ; && || | & newline honoring single/double quotes + backslash."""
+    """Split on ; && || | & newline honoring '…', "…", $'…' and backslash."""
     out: list[str] = []
     buf: list[str] = []
     i, n = 0, len(command)
@@ -229,11 +229,14 @@ def split_segments(command: str) -> list[str]:
     while i < n:
         c = command[i]
         if quote:
-            if c == "\\" and i + 1 < n:
+            # A backslash escapes inside "…" and $'…', but is plain text in '…'.
+            if c == "\\" and quote != "'" and i + 1 < n:
                 buf.append(c); buf.append(command[i + 1]); i += 2; continue
-            if c == quote:
+            if c == quote[-1]:
                 quote = None
             buf.append(c); i += 1; continue
+        if command.startswith("$'", i):
+            quote = "$'"; buf.append("$'"); i += 2; continue
         if c in ("'", '"'):
             quote = c; buf.append(c); i += 1; continue
         if c == "\\" and i + 1 < n:

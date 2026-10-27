@@ -329,6 +329,24 @@ ASK_CASES: list[tuple[str, str]] = [
     ("acli jira workitem attachment delete --key X-1", "acli attachment delete"),
     # a flag value must not launder a write into a read
     ("acli jira workitem comment create --key X-1 --body list", "acli write w/ 'list' body"),
+    # pflag consumes the token after a value flag, so this creates a "--help" comment
+    ("acli jira workitem comment create --key X-1 --body --help", "acli write w/ '--help' body"),
+    ("acli jira workitem create --summary -h", "acli write w/ '-h' summary"),
+    # shlex tokens are not the shell's argv: each of these runs the write
+    ("acli jira workitem comment create --key X-1 --body x -- y --help", "acli help after --"),
+    ("acli jira workitem comment create --key X-1 --body $(true) --help", "acli help after empty $()"),
+    ("acli jira workitem comment create --key X-1 --body `true` --help", "acli help after empty backtick"),
+    ("acli jira workitem comment create --key X-1 --body x > --help", "acli help as redirect target"),
+    ("acli jira workitem comment create --key X-1 --body x # --help", "acli help in shell comment"),
+    ("acli jira workitem delete --key X-1 --help --help=false", "acli help overridden later"),
+    # shlex/normalize split these, the shell keeps `x?--help` one positional
+    ("acli jira workitem delete abc-1 x\r--help", "acli help glued by CR"),
+    ("acli jira workitem delete abc-1 x\xa0--help", "acli help glued by NBSP"),
+    ("acli jira workitem delete abc-1 x\\\n--help", "acli help glued by line continuation"),
+    ("acli jira workitem delete abc-1 --help\u2003", "acli help w/ trailing em space"),
+    # multi-line constructs join newline-split segments into one argv
+    ('a=(\nacli jira workitem delete abc-1 --help\n--help=false)\n"${a[@]}"', "acli help joined by array"),
+    ("${x:-\nacli jira workitem delete abc-1 --help\n--help=false}", "acli help joined by ${:-}"),
 ]
 
 
@@ -417,6 +435,13 @@ ALLOW_CASES: list[str] = [
     "acli jira workitem view --key X-1",
     "acli jira workitem search --jql 'project = X'",
     "acli confluence page view --id 123",
+    # help output never mutates, whatever subcommand it documents
+    "acli jira workitem comment --help",
+    "acli jira workitem comment create --help",
+    "acli jira workitem create -h",
+    "acli --help",
+    ("acli jira workitem view X-1 --fields '*all' --json | head -c 6000; echo; "
+     "acli jira workitem comment --help | head -30"),
     # read-only forms of the partition / disk tools must stay usable
     "fdisk -l",
     "sfdisk --dump /dev/sda",

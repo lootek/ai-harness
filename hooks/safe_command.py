@@ -2,8 +2,8 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.0
-Last reviewed:   2026-10-07
+Version:         2.7.4
+Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
                  wildcards, and Edit/Write(~/**) — this hook is the last
@@ -1393,6 +1393,14 @@ ACLI_READONLY_VERBS = {
     "list", "view", "search", "get", "show", "status",
     "visibility", "type", "list-watchers",
 }
+# Help skips the acli ASK only for this exact raw segment. Matched on text, not
+# argv: any option, `--`, `$()`, `>` or `#` before the flag can turn it into a
+# value or drop it. The whole command must also be plain ASCII free of `\$`(){}`:
+# the shell keeps `x\r--help`, `x<NBSP>--help` and `x\<LF>--help` one word where
+# shlex/normalize() split them, and `a=(…)` / `${x:-…}` join segments split on
+# newline into one argv, so a trailing `--help=false` line turns help back off.
+_ACLI_HELP_RE = re.compile(r"acli(?: [a-z][a-z0-9-]*)* (?:--help|-h)")
+_SPLIT_HAZARD_RE = re.compile(r"[^\t\n\x20-\x7e]|[\\$`(){}]")
 
 
 def ask_acli(argv: list[str]) -> str | None:
@@ -1662,6 +1670,7 @@ def evaluate(command: str) -> tuple[str, str]:
     explicit_hit = False
     all_segments_ok = True
     saw_segment = False
+    acli_help_ok = not _SPLIT_HAZARD_RE.search(command)
 
     for segment in split_segments(norm):
         argv = tokenize(segment)
@@ -1691,7 +1700,7 @@ def evaluate(command: str) -> tuple[str, str]:
                     return "deny", reason
 
         # Record the first ASK, but keep scanning so a later DENY still wins.
-        if ask_hit is None:
+        if ask_hit is None and not (acli_help_ok and _ACLI_HELP_RE.fullmatch(segment)):
             for av in argvs:
                 for predicate in ASK_PREDICATES:
                     reason = predicate(av)

@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.9
+Version:         2.7.10
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -292,10 +292,11 @@ def strip_env_prefix(argv: list[str]) -> list[str]:
 
 def _inert_env_prefix(argv: list[str], stripped: list[str]) -> bool:
     """`env [-u NAME]…` only drops variables. Any assignment or other env
-    option can point the command at other code."""
+    option can point the command at other code, and so can `./env`."""
     prefix = argv[:len(argv) - len(stripped)]
-    return (_basename(prefix[0]) == "env" and len(prefix) % 2 == 1
-            and all(f == "-u" for f in prefix[1::2]))
+    return (prefix[0] in ("env", "/usr/bin/env", "/bin/env") and len(prefix) % 2 == 1
+            and all(f == "-u" and not _ENV_ASSIGN_RE.match(name)
+                    for f, name in zip(prefix[1::2], prefix[2::2])))
 
 
 _SUDO_CMDS = {"sudo", "doas"}

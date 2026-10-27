@@ -1015,3 +1015,23 @@ def test_prefix_blocks_explicit_allow(cmd: str):
 def test_env_unset_keeps_explicit_allow(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+# ── the env in `env -u` is the real env (v2.7.10) ──────────────────────────
+# A basename match let `./env -u X git push` run any program named env.
+ENV_PATH_CASES = [
+    "./env -u X git push origin main",
+    "/tmp/x/env git push origin main",
+    "bin/env -u GITLAB_TOKEN glab mr note 2 -m x",
+    "env -u A=b git push origin main",
+]
+
+
+@pytest.mark.parametrize("cmd", ENV_PATH_CASES, ids=lambda c: c[:60])
+def test_env_prefix_needs_the_real_env(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+def test_usr_bin_env_unset_keeps_explicit_allow():
+    assert evaluate("/usr/bin/env -u GITLAB_TOKEN git push origin main")[0] == "allow-explicit"

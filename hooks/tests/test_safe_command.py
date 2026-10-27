@@ -1035,3 +1035,22 @@ def test_env_prefix_needs_the_real_env(cmd: str):
 
 def test_usr_bin_env_unset_keeps_explicit_allow():
     assert evaluate("/usr/bin/env -u GITLAB_TOKEN git push origin main")[0] == "allow-explicit"
+
+
+# ── zsh expands a leading `=` in a redirect target (v2.7.11) ──────────────
+# `> =python3` writes to the python3 on PATH. Each component of a scratch
+# target now starts with a letter, digit or `_`.
+EQUALS_TARGET_CASES = [
+    "git push origin main > =python3",
+    "git push origin main >=python3",
+    "git push origin main 2>=git",
+    "git push origin main &>=git",
+    "git push origin main > /tmp/=git",
+    "glab mr note 2 -m x > scratch/=ls",
+]
+
+
+@pytest.mark.parametrize("cmd", EQUALS_TARGET_CASES, ids=lambda c: c[:60])
+def test_equals_target_blocks_explicit_allow(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"

@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.10
+Version:         2.7.11
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -1563,12 +1563,13 @@ _REDIR_RE = re.compile(r"^(\d*|&)>>?(.*)$")
 
 # Redirect targets that cannot plant anything: the null/std devices, or a
 # scratch path under /tmp or relative to the cwd whose every component starts
-# with a plain char, so no dotfile, dot-dir or `..`. Quotes, `~` and `$`
-# never match, so the shell cannot expand the target somewhere else.
+# with a letter, digit or `_`, so no dotfile, dot-dir, `..` or zsh `=cmd`
+# (which expands to the path of cmd). Quotes, `~` and `$` never match, so the
+# shell cannot expand the target somewhere else.
 _SCRATCH_TARGET_RE = re.compile(
     r"(?:/tmp/|/private/tmp/)?"
-    r"[A-Za-z0-9_@%+=:,-][A-Za-z0-9._@%+=:,-]*"
-    r"(?:/[A-Za-z0-9_@%+=:,-][A-Za-z0-9._@%+=:,-]*)*")
+    r"[A-Za-z0-9_][A-Za-z0-9._@%+=:,-]*"
+    r"(?:/[A-Za-z0-9_][A-Za-z0-9._@%+=:,-]*)*")
 
 
 def _harmless_target(target: str) -> bool:

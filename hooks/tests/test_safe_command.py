@@ -1144,3 +1144,26 @@ def test_acli_help_redirect_cannot_hide_args(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "ask", f"{cmd!r} got {decision}: {reason}"
 
+
+# ── MR dependency (blocks) is an MR write (v2.8.1) ─────────────────────────
+_BLOCKS_SCRIPT = '''cd mr && python3 - <<'EOF'
+import json, subprocess, os
+env = {k: v for k, v in os.environ.items() if k != "GITLAB_TOKEN"}
+s = json.load(open("state.json"))
+r = subprocess.run(["glab","api","--method","POST",f"projects/grp%2Frepo/merge_requests/{s['setup']['iid']}/blocks?blocking_merge_request_id={s['dash']['id']}"],env=env,capture_output=True,text=True)
+b = json.loads(subprocess.run(["glab","api",f"projects/grp%2Frepo/merge_requests/{s['setup']['iid']}/blocks"],env=env,capture_output=True,text=True).stdout)
+print(b)
+EOF'''
+
+
+@pytest.mark.parametrize("cmd,expected", [
+    (_BLOCKS_SCRIPT, "allow"),
+    ("glab api --method POST 'projects/grp%2Frepo/merge_requests/2/blocks?blocking_merge_request_id=9'",
+     "allow-explicit"),
+    ("glab api --method DELETE projects/1/merge_requests/2/blocks/9", "ask"),
+    ("glab api --method POST projects/1/merge_requests/2/blocks/9/x", "ask"),
+    (_BLOCKS_SCRIPT.replace('"--method","POST"', '"--method","DELETE"'), "ask"),
+], ids=["payload", "cli", "delete", "subpath", "payload-delete"])
+def test_mr_blocks_is_an_mr_write(cmd: str, expected: str):
+    decision, reason = evaluate(cmd)
+    assert decision == expected, f"got {decision}: {reason}"

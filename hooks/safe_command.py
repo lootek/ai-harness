@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.8.1
+Version:         2.8.2
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -925,6 +925,11 @@ _MR_CREATE_ENDPOINT_RE = re.compile(
 _MR_UPDATE_ENDPOINT_RE = re.compile(
     r"^/?(api/v4/)?projects/[^/]+/merge_requests/\d+/?$"
 )
+# POST …/merge_requests/<iid>/blocks?blocking_merge_request_id=N adds an MR
+# dependency: metadata on the MR, like an update. Removing one (DELETE) asks.
+_MR_BLOCKS_ENDPOINT_RE = re.compile(
+    r"^/?(api/v4/)?projects/[^/]+/merge_requests/\d+/blocks/?$"
+)
 
 
 def _api_endpoint(tail: list[str]) -> str:
@@ -948,7 +953,7 @@ def _is_mr_write_endpoint(tail: list[str], method: str | None) -> bool:
     if _MR_NOTE_ENDPOINT_RE.match(endpoint):
         return True
     if method == "POST":
-        return bool(_MR_CREATE_ENDPOINT_RE.match(endpoint))
+        return bool(_MR_CREATE_ENDPOINT_RE.match(endpoint) or _MR_BLOCKS_ENDPOINT_RE.match(endpoint))
     return bool(_MR_UPDATE_ENDPOINT_RE.match(endpoint))
 
 

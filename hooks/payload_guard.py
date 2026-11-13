@@ -29,6 +29,7 @@ which never reaches Bash at all. This raises the bar; it is not a boundary.
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shlex
@@ -286,7 +287,62 @@ def _code_only(text: str, docs: set[int]) -> str:
     return "\n".join(keep)
 
 
-def scan_text(text: str, source: str = "<payload>") -> list[Finding]:
+def _fstring_field_ok(node: ast.AST) -> bool:
+    while isinstance(node, ast.Subscript):
+        if not isinstance(node.slice, (ast.Name, ast.Constant)):
+            return False
+        node = node.value
+    return isinstance(node, ast.Name)
+
+
+def _literal_argv(node: ast.AST) -> list[str] | None:
+    """The argv a list literal spells, with each f-string field read as `1`.
+    None unless every element is a string or an f-string over plain names."""
+    if not isinstance(node, ast.List):
+        return None
+    argv = []
+    for el in node.elts:
+        if isinstance(el, ast.Constant) and isinstance(el.value, str):
+            argv.append(el.value)
+        elif isinstance(el, ast.JoinedStr):
+            parts = []
+            for v in el.values:
+                if isinstance(v, ast.Constant):
+                    parts.append(v.value)
+                elif (isinstance(v, ast.FormattedValue) and v.conversion == -1
+                      and v.format_spec is None and _fstring_field_ok(v.value)):
+                    parts.append("1")
+                else:
+                    return None
+            argv.append("".join(parts))
+        else:
+            return None
+    return argv
+
+
+def _drop_approved_lists(line: str, argv_ok) -> str:
+    """The line with every argv list literal that argv_ok approves blanked to
+    `[]`. What is left is scanned again, so a second call on the same line
+    still counts."""
+    out, i = line, 0
+    while (i := out.find("[", i)) != -1:
+        for j in range(i + 1, len(out)):
+            if out[j] != "]":
+                continue
+            try:
+                node = ast.parse(out[i:j + 1], mode="eval").body
+            except SyntaxError:
+                continue
+            argv = _literal_argv(node)
+            if argv is not None and argv_ok(argv):
+                out = out[:i] + "[]" + out[j + 1:]
+            break
+        i += 1
+    return out
+
+
+def scan_text(text: str, source: str = "<payload>", argv_ok=None) -> list[Finding]:
+    """argv_ok(argv) -> bool marks a subprocess argv list as pre-approved."""
     out: list[Finding] = []
     docs = docstring_lines(text)
     for i, raw in logical_lines(text):
@@ -300,8 +356,11 @@ def scan_text(text: str, source: str = "<payload>") -> list[Finding]:
         # `==` to normalisation, and that is the whole tell.
         if any(pat.search(norm) or pat.search(stripped) for _, pat in EXEMPT):
             continue
+        rest = norm
+        if argv_ok and "[" in stripped:
+            rest = normalize_line(_drop_approved_lists(stripped, argv_ok))
         for reason, pat, needs_sensitive in PATTERNS:
-            if not pat.search(norm):
+            if not pat.search(rest):
                 continue
             if needs_sensitive and not SENSITIVE_TARGET.search(stripped):
                 continue
@@ -318,13 +377,13 @@ def scan_text(text: str, source: str = "<payload>") -> list[Finding]:
     return out
 
 
-def scan_file(path: str) -> list[Finding]:
+def scan_file(path: str, argv_ok=None) -> list[Finding]:
     try:
         with open(path, errors="ignore") as fh:
             text = fh.read(MAX_BYTES)
     except OSError:
         return []
-    return scan_text(text, source=os.path.basename(path))
+    return scan_text(text, source=os.path.basename(path), argv_ok=argv_ok)
 
 
 def _resolve(arg: str, cwd: str | None, command: str) -> str | None:
@@ -385,13 +444,13 @@ def split_segments(command: str) -> list[str]:
     return out
 
 
-def scan_command(command: str, cwd: str | None = None) -> list[Finding]:
+def scan_command(command: str, cwd: str | None = None, argv_ok=None) -> list[Finding]:
     """Findings for the payload a command would execute indirectly."""
     if not command:
         return []
     # A heredoc body already sits in the command text; scan the whole thing.
     if "<<" in command:
-        return scan_text(command, source="<heredoc>")
+        return scan_text(command, source="<heredoc>", argv_ok=argv_ok)
 
     findings: list[Finding] = []
     for segment in split_segments(command):
@@ -409,7 +468,7 @@ def scan_command(command: str, cwd: str | None = None) -> list[Finding]:
         if head in ("source", ".") and len(argv) > 1:
             p = _resolve(argv[1], cwd, command)
             if p:
-                findings += scan_file(p)
+                findings += scan_file(p, argv_ok)
             continue
 
         if head not in INTERPRETERS:
@@ -417,7 +476,7 @@ def scan_command(command: str, cwd: str | None = None) -> list[Finding]:
             if argv[0].startswith("./") or argv[0].startswith("../"):
                 p = _resolve(argv[0], cwd, command)
                 if p:
-                    findings += scan_file(p)
+                    findings += scan_file(p, argv_ok)
             continue
 
         inline = None
@@ -435,10 +494,10 @@ def scan_command(command: str, cwd: str | None = None) -> list[Finding]:
                 continue
             p = _resolve(tok, cwd, command)
             if p:
-                findings += scan_file(p)
+                findings += scan_file(p, argv_ok)
             break
         if inline:
-            findings += scan_text(inline, source="<inline>")
+            findings += scan_text(inline, source="<inline>", argv_ok=argv_ok)
     return findings
 
 

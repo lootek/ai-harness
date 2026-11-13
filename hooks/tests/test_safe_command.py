@@ -1054,3 +1054,59 @@ EQUALS_TARGET_CASES = [
 def test_equals_target_blocks_explicit_allow(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision != "allow-explicit", f"{cmd!r} got {decision}: {reason}"
+
+
+# ── a payload's pre-approved MR write does not force a prompt (v2.8.0) ────
+# A script calling `glab api --method PUT projects/{pid}/merge_requests/{iid}`
+# asked every time, though the same call on the command line is pre-approved.
+# Only the hook's own ask goes: the command lands on the silent default, so
+# the classifier still sees it.
+_MR_SCRIPT = '''cd mr && python3 - <<'EOF'
+import json, subprocess, os, re
+env = {k: v for k, v in os.environ.items() if k != "GITLAB_TOKEN"}
+s = json.load(open("state.json"))
+for k in ["a", "b"]:
+    pid = s[k]["project"].replace("/", "%2F"); iid = s[k]["iid"]
+    m = json.loads(subprocess.run(["glab","api",f"projects/{pid}/merge_requests/{iid}"],env=env,capture_output=True,text=True).stdout)
+    open("payload.json","w").write(json.dumps({"title": m["title"]}))
+    r = subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}","--header","Content-Type: application/json","--input","payload.json"],env=env,capture_output=True,text=True)
+    print(json.loads(r.stdout)["draft"])
+EOF'''
+
+_PUT_SPELLING = 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}"'
+PAYLOAD_MR_WRITE_OK = [
+    _MR_SCRIPT,
+    _MR_SCRIPT.replace(_PUT_SPELLING, 'subprocess.run(["glab","api","-X","POST",f"projects/{pid}/merge_requests/{iid}/notes","-f","body=x"'),
+    _MR_SCRIPT.replace('["glab","api","--method","PUT"', '["env","-u","GITLAB_TOKEN","glab","api","--method","PUT"'),
+    _MR_SCRIPT.replace('subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}"',
+                       'subprocess.run(["glab","api","--method","POST",f"projects/{pid}/merge_requests"'),
+]
+_PUT = 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}"'
+PAYLOAD_MR_WRITE_ASK = [
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","DELETE",f"projects/{pid}/merge_requests/{iid}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}/merge"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","PUT",endpoint'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid!r}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","--method","PUT",f"projects/{pid}/merge_requests/{f(iid)}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["./env","-u","X","glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["env","X=1","glab","api","--method","PUT",f"projects/{pid}/merge_requests/{iid}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["gh","api","--method","DELETE","repos/o/r"]); ' + _PUT),
+    _MR_SCRIPT.replace(_PUT, 'os.system("glab api -X DELETE projects/1"); ' + _PUT),
+    _MR_SCRIPT.replace("    print(json.loads", '    subprocess.run(["glab","api","-X","DELETE",f"projects/{pid}"])\n    print(json.loads'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","-X","DELETE",f"projects/{pid}/merge_requests/{iid}"'),
+    _MR_SCRIPT.replace(_PUT, 'subprocess.run(["glab","api","-XDELETE",f"projects/{pid}/merge_requests/{iid}"'),
+]
+
+
+@pytest.mark.parametrize("cmd", PAYLOAD_MR_WRITE_OK, ids=range(len(PAYLOAD_MR_WRITE_OK)))
+def test_payload_mr_write_does_not_ask(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow", f"got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", PAYLOAD_MR_WRITE_ASK, ids=range(len(PAYLOAD_MR_WRITE_ASK)))
+def test_payload_other_api_write_still_asks(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "ask", f"got {decision}: {reason}"
+

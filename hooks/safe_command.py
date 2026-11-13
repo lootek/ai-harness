@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.7.11
+Version:         2.8.0
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -1779,6 +1779,17 @@ _INDIRECT_RE = re.compile(
     r"(^|[;&|]\s*)(source|\.)\s+\S|(^|[;&|]\s*)\./\S")
 
 
+def _payload_argv_ok(argv: list[str]) -> bool:
+    """A payload's `glab api` argv list that the command-line allow would
+    pre-approve (MR create/update/note). Dropping its ask only reaches the
+    silent default, so the classifier still sees the command: f-string fields
+    are read as `1`, and their runtime value is unknown."""
+    stripped = strip_env_prefix(argv)
+    if stripped != argv and not _inert_env_prefix(argv, stripped):
+        return False
+    return allow_glab_mr_api(stripped) is not None
+
+
 def _payload_ask(command: str) -> str | None:
     """ASK when a script or inline body about to run mutates something outside
     this machine. Returns None when there is no payload to read.
@@ -1794,7 +1805,7 @@ def _payload_ask(command: str) -> str | None:
         spec = importlib.util.spec_from_file_location("payload_guard", _PAYLOAD_GUARD)
         guard = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(guard)
-        findings = guard.scan_command(command, cwd=os.getcwd())
+        findings = guard.scan_command(command, cwd=os.getcwd(), argv_ok=_payload_argv_ok)
         if not findings:
             return None
         return guard.decide(findings)[1]

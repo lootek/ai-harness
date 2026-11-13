@@ -1252,3 +1252,35 @@ def test_wrapper_inline_list(cmd: str, expected: str):
     decision, reason = evaluate(cmd)
     assert decision == expected, f"got {decision}: {reason}"
 
+
+# ── auto-merge is a pre-approved MR write (v2.8.4) ─────────────────────────
+_AM = ("cd mr && printf '{\"auto_merge\":true,\"should_remove_source_branch\":true}' > payload.json && "
+       "env -u GITLAB_TOKEN glab api --method PUT \"projects/grp%2Frepo/merge_requests/44/merge\" "
+       "--header \"Content-Type: application/json\" --input payload.json > merge-resp.json 2>&1; "
+       "grep -oE '\"detailed_merge_status\":\"[a-z_]+\"' merge-resp.json; echo \"- !44: auto-merge set\" >> ../mr-monitor.md")
+
+
+@pytest.mark.parametrize("cmd,ok", [
+    (_AM, True),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -F auto_merge=true", True),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -f merge_when_pipeline_succeeds=true -f sha=a9be22b9", True),
+    # an immediate merge, or anything beyond the auto-merge keys
+    ("glab api -X PUT projects/1/merge_requests/2/merge", False),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -F auto_merge=false", False),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -F auto_merge=true -f merge_commit_message=x", False),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -F auto_merge=true -F auto_merge=false", False),
+    ("glab api -X PUT projects/1/merge_requests/2/merge -F auto_merge=true -f sha=$(x)", False),
+    (_AM.replace('"auto_merge":true', '"auto_merge":false'), False),
+    (_AM.replace('"auto_merge":true', '"auto_merge":"yes"'), False),
+    (_AM.replace(" && env -u", " && printf '{}' > payload.json && env -u"), False),
+    (_AM.replace("--input payload.json", "--input other.json"), False),
+    (_AM.replace("--input payload.json", "--input -"), False),
+    (_AM.replace(" && env -u GITLAB_TOKEN glab api", "; env -u GITLAB_TOKEN glab api")
+         .replace("printf '{", "glab api -X PUT projects/1/merge_requests/3/merge --input payload.json; printf '{"), False),
+    (_AM.replace("printf '{\"auto_merge\":true", "printf '%s{\"auto_merge\":true"), False),
+    ("glab api -X PUT projects/1/merge_requests/2/merge/x -F auto_merge=true", False),
+    ("glab api -X POST projects/1/merge_requests/2/merge -F auto_merge=true", False),
+], ids=range(17))
+def test_auto_merge_is_an_mr_write(cmd: str, ok: bool):
+    decision, reason = evaluate(cmd)
+    assert (decision != "ask") == ok, f"got {decision}: {reason}"

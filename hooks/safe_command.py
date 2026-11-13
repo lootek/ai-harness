@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.8.4
+Version:         2.8.5
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -954,7 +954,78 @@ def _is_mr_write_endpoint(tail: list[str], method: str | None) -> bool:
         return True
     if method == "POST":
         return bool(_MR_CREATE_ENDPOINT_RE.match(endpoint) or _MR_BLOCKS_ENDPOINT_RE.match(endpoint))
+    if _MR_MERGE_ENDPOINT_RE.match(endpoint):
+        return _is_auto_merge_body(tail)
     return bool(_MR_UPDATE_ENDPOINT_RE.match(endpoint))
+
+
+# PUT …/merge_requests/<iid>/merge with auto_merge: true. GitLab merges "when
+# checks pass", which is at once if they already have. Any key beyond these,
+# or a body the hook cannot read, keeps the ask.
+_MR_MERGE_ENDPOINT_RE = re.compile(
+    r"^/?(api/v4/)?projects/[^/]+/merge_requests/\d+/merge/?$"
+)
+_AUTO_MERGE_KEYS = {"auto_merge", "merge_when_pipeline_succeeds",
+                    "should_remove_source_branch", "squash", "sha"}
+
+# Full text of the command being evaluated, for a body written to a file by
+# the same command (`printf '{…}' > payload.json && glab api … --input payload.json`).
+_COMMAND_TEXT = ""
+
+
+def _auto_merge_body_ok(body: dict) -> bool:
+    if not body or not set(body) <= _AUTO_MERGE_KEYS:
+        return False
+    if not (body.get("auto_merge") is True or body.get("merge_when_pipeline_succeeds") is True):
+        return False
+    for k in ("auto_merge", "merge_when_pipeline_succeeds", "should_remove_source_branch", "squash"):
+        if k in body and not isinstance(body[k], bool):
+            return False
+    return "sha" not in body or bool(re.fullmatch(r"[0-9a-f]{7,64}", str(body["sha"])))
+
+
+def _is_auto_merge_body(tail: list[str]) -> bool:
+    fields, inputs = {}, []
+    i = 0
+    while i < len(tail):
+        a = tail[i]
+        name, eq, val = a.partition("=")
+        if name in ("-f", "--field", "-F", "--raw-field", "--input"):
+            if not eq:
+                if i + 1 >= len(tail):
+                    return False
+                val = tail[i + 1]
+                i += 1
+            if name == "--input":
+                inputs.append(val)
+            else:
+                k, eq2, v = val.partition("=")
+                if not eq2 or k in fields:
+                    return False
+                fields[k] = {"true": True, "false": False}.get(v, v)
+        i += 1
+    if inputs:
+        return not fields and len(inputs) == 1 and _auto_merge_body_ok(_written_json(inputs[0]))
+    return _auto_merge_body_ok(fields)
+
+
+def _written_json(path: str) -> dict:
+    """The JSON object this command writes to `path` before running glab, if
+    the only write to it is `printf '…' > path` or `echo '…' > path`."""
+    text = _COMMAND_TEXT
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]*", path):
+        return {}
+    writes = list(re.finditer(r"(?:^|[^>&0-9])(?:[12]?|&)>>?\|?[ \t]*" + re.escape(path) + r"(?![\w./-])", text))
+    m = re.search(r"(?:^|[;&|\n][ \t]*)(?:printf|echo)[ \t]+'([^'%\\]*)'[ \t]*>[ \t]*"
+                  + re.escape(path) + r"(?![\w./-])", text)
+    glab = text.find("glab api")
+    if len(writes) != 1 or not m or glab == -1 or m.end() > glab:
+        return {}
+    try:
+        body = json.loads(m.group(1))
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
 
 
 def check_gh_glab_deny(argv: list[str]) -> str | None:
@@ -1951,7 +2022,9 @@ def evaluate(command: str) -> tuple[str, str]:
     prompt in place. So we only emit explicit-allow for the tight,
     intentionally pre-approved verb set in ALLOW_PREDICATES.
     """
+    global _COMMAND_TEXT
     norm = normalize(command)
+    _COMMAND_TEXT = norm
 
     # Raw-text DENY patterns first (redirects, pipe-to-shell, fork bombs).
     for pat, reason in RAW_DENY:

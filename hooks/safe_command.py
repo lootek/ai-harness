@@ -2,7 +2,7 @@
 """
 Claude Code PreToolUse hook: gates destructive / exfil-prone shell commands.
 
-Version:         2.8.0
+Version:         2.8.1
 Last reviewed:   2026-10-27
 Threat model:    LLM with ambient Bedrock/Vault/AWS/GitLab credentials,
                  broad Bash(bash:*), Bash(python3:*), Bash(aws:*), Bash(*CLI:*)
@@ -1471,7 +1471,42 @@ ACLI_READONLY_VERBS = {
 # the shell keeps `x\r--help`, `x<NBSP>--help` and `x\<LF>--help` one word where
 # shlex/normalize() split them, and `a=(…)` / `${x:-…}` join segments split on
 # newline into one argv, so a trailing `--help=false` line turns help back off.
-_ACLI_HELP_RE = re.compile(r"acli(?: [a-z][a-z0-9-]*)* (?:--help|-h)")
+# One trailing stderr redirect may follow: `2>/dev/null`, or `2>&1`, which the
+# splitter cuts at `&` into `… --help 2>` + `1`. A cut at `&` can also hide
+# args (`--help &>x --key X-1`, `--help 2>&1 --key X-1`), so every place the
+# segment occurs in the command must end at a real separator.
+_ACLI_HELP_RE = re.compile(r"acli(?: [a-z][a-z0-9-]*)* (?:--help|-h)(?P<redir> 2>| [12]?> ?/dev/null)?")
+_CMD_END = r"[ \t]*(?:$|\n|;|\|\|?|&&|&(?![>&]))"
+
+
+def _acli_help_segment(segment: str, norm: str) -> bool:
+    m = _ACLI_HELP_RE.fullmatch(segment)
+    if not m:
+        return False
+    end = ("&1" if m.group("redir") == " 2>" else "") + _CMD_END
+    hits = [h.end() for h in re.finditer(re.escape(segment), norm)]
+    return bool(hits) and all(re.match(end, norm[e:]) for e in hits)
+
+
+def _split_hazard(command: str) -> bool:
+    """_SPLIT_HAZARD_RE outside quotes. Single-quoted text is inert; inside
+    "…" only `\\`, `$` and a backtick still act. Unclosed quotes count."""
+    if re.search(r"[^\t\n\x20-\x7e]", command):
+        return True
+    quote = None
+    for c in command:
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif quote == '"':
+            if c == '"':
+                quote = None
+            elif c in "\\$`":
+                return True
+        elif c in "'\"":
+            quote = c
+        elif _SPLIT_HAZARD_RE.match(c):
+            return True
+    return quote is not None
 _SPLIT_HAZARD_RE = re.compile(r"[^\t\n\x20-\x7e]|[\\$`(){}]")
 
 
@@ -1922,7 +1957,7 @@ def evaluate(command: str) -> tuple[str, str]:
     explicit_hit = False
     all_segments_ok = True
     saw_segment = False
-    acli_help_ok = not _SPLIT_HAZARD_RE.search(command)
+    acli_help_ok = not _split_hazard(command)
 
     for segment in split_segments(norm):
         argv = tokenize(segment)
@@ -1957,7 +1992,7 @@ def evaluate(command: str) -> tuple[str, str]:
                     return "deny", reason
 
         # Record the first ASK, but keep scanning so a later DENY still wins.
-        if ask_hit is None and not (acli_help_ok and _ACLI_HELP_RE.fullmatch(segment)):
+        if ask_hit is None and not (acli_help_ok and _acli_help_segment(segment, norm)):
             for av in argvs:
                 for predicate in ASK_PREDICATES:
                     reason = predicate(av)

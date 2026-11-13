@@ -1110,3 +1110,37 @@ def test_payload_other_api_write_still_asks(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "ask", f"got {decision}: {reason}"
 
+
+# ── acli help with a stderr redirect (v2.8.1) ──────────────────────────────
+ACLI_HELP_REDIR_OK = [
+    "acli jira workitem comment --help 2>&1 | head -20",
+    ("cd /tmp/x; acli jira workitem comment --help 2>&1 | head -20; acli jira workitem view "
+     "X-1 --json 2>&1 | jq '{key,summary:.fields.summary}' | head -60"),
+    "acli jira workitem comment --help 2>&1",
+    "acli jira workitem comment --help 2>&1 && acli jira workitem view X-1",
+    "acli jira workitem comment -h 2>/dev/null",
+    "acli jira workitem comment --help 2> /dev/null | head",
+]
+ACLI_HELP_REDIR_ASK = [
+    "acli jira workitem comment --help 2>&1 --key X-1 --body x",
+    "acli jira workitem comment --help 2>&1 --help=false --key X-1 --body x",
+    "acli jira workitem comment --help 2>&1x --key X-1",
+    "acli jira workitem comment --help 2>&1 | head; acli jira workitem comment --help 2>&1 --key X-1 --body x",
+    "acli jira workitem delete --help 2>/dev/null --key X-1",
+    "acli jira workitem delete --help 2>/tmp/x --key X-1",
+    "acli jira workitem delete --help &>/dev/null --key X-1 --help=false",
+    "acli jira workitem delete --help 2>&3 --key X-1",
+]
+
+
+@pytest.mark.parametrize("cmd", ACLI_HELP_REDIR_OK, ids=lambda c: c[:60])
+def test_acli_help_with_stderr_redirect_does_not_ask(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision != "ask", f"{cmd!r} got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", ACLI_HELP_REDIR_ASK, ids=lambda c: c[:60])
+def test_acli_help_redirect_cannot_hide_args(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "ask", f"{cmd!r} got {decision}: {reason}"
+

@@ -1225,3 +1225,30 @@ def test_wrapper_mr_write_does_not_ask(cmd: str):
 def test_wrapper_other_write_still_asks(cmd: str):
     decision, reason = evaluate(cmd)
     assert decision == "ask", f"got {decision}: {reason}"
+
+
+# ── the wrapper's list may be passed inline (v2.8.4) ───────────────────────
+_WRAP_INLINE = '''cd mr && python3 - <<'EOF'
+import json, subprocess, os
+env = {k: v for k, v in os.environ.items() if k != "GITLAB_TOKEN"}
+base="projects/grp%2Frepo/merge_requests/44/discussions"
+did=next(d["id"] for d in json.load(open("d.json")) if d["id"].startswith("c59c"))
+def call(method, path, payload):
+    open("payload.json","w").write(json.dumps(payload))
+    return subprocess.run(["glab","api","--method",method,path,"--header","Content-Type: application/json","--input","payload.json"],env=env,capture_output=True,text=True).returncode
+body="good catch"
+print("reply", call("POST", f"{base}/{did}/notes", {"body": body}), "resolve", call("PUT", f"{base}/{did}", {"resolved": True}))
+EOF'''
+
+
+@pytest.mark.parametrize("cmd,expected", [
+    (_WRAP_INLINE, "allow"),
+    (_WRAP_INLINE.replace('call("PUT", f"{base}/{did}"', 'call("DELETE", f"{base}/{did}"'), "ask"),
+    (_WRAP_INLINE.replace('subprocess.run(["glab","api","--method",method,path,',
+                          'subprocess.run(["glab","api","--method",method,path] + extra + ['), "ask"),
+    (_WRAP_INLINE.replace('    open("payload.json"', '    x = ["glab","api","-X","DELETE",path]\n    open("payload.json"'), "ask"),
+], ids=["inline", "delete", "concat", "two-lists"])
+def test_wrapper_inline_list(cmd: str, expected: str):
+    decision, reason = evaluate(cmd)
+    assert decision == expected, f"got {decision}: {reason}"
+

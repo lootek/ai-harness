@@ -405,46 +405,60 @@ class _Resolver:
 
 def _glab_wrappers(tree: ast.AST) -> dict[str, tuple[list[str], list]]:
     """name -> (params, argv template), the template holding str or a param
-    index. Only a single list assignment, plus `+=` of string literals."""
+    index. The function holds exactly one `["glab", "api", …]` list of string
+    literals and parameters: passed inline, or assigned once to a name that is
+    then only extended by `+=` of string literals."""
     out = {}
     for fn in ast.walk(tree):
         if not isinstance(fn, ast.FunctionDef) or fn.args.vararg or fn.args.kwarg:
             continue
         params = [a.arg for a in fn.args.args]
-        lists = [n for n in ast.walk(fn) if isinstance(n, ast.Assign) and len(n.targets) == 1
-                 and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.List)]
-        if len(lists) != 1:
-            continue
-        var = lists[0].targets[0].id
-        tmpl: list = []
-        for el in lists[0].value.elts:
-            if isinstance(el, ast.Constant) and isinstance(el.value, str):
-                tmpl.append(el.value)
-            elif isinstance(el, ast.Name) and el.id in params:
-                tmpl.append(params.index(el.id))
-            else:
-                tmpl = []
-                break
-        if tmpl[:2] != ["glab", "api"]:
-            continue
-        ok = True
-        for n in ast.walk(fn):
-            touches = [t for t in getattr(n, "targets", [getattr(n, "target", None)])
-                       if isinstance(t, ast.Name) and t.id == var]
-            if isinstance(n, ast.AugAssign) and touches:
-                if (isinstance(n.op, ast.Add) and isinstance(n.value, ast.List)
-                        and all(isinstance(e, ast.Constant) and isinstance(e.value, str)
-                                for e in n.value.elts)):
-                    tmpl += [e.value for e in n.value.elts]
+        cands = []
+        for lst in ast.walk(fn):
+            if not isinstance(lst, ast.List):
+                continue
+            tmpl: list = []
+            for el in lst.elts:
+                if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                    tmpl.append(el.value)
+                elif isinstance(el, ast.Name) and el.id in params:
+                    tmpl.append(params.index(el.id))
                 else:
+                    tmpl = []
+                    break
+            if tmpl[:2] == ["glab", "api"]:
+                cands.append((lst, tmpl))
+        if len(cands) != 1:
+            continue
+        lst, tmpl = cands[0]
+        owner = next((n for n in ast.walk(fn) if isinstance(n, ast.Assign) and n.value is lst), None)
+        if owner is not None:
+            if len(owner.targets) != 1 or not isinstance(owner.targets[0], ast.Name):
+                continue
+            var = owner.targets[0].id
+            ok = True
+            for n in ast.walk(fn):
+                touches = [t for t in getattr(n, "targets", [getattr(n, "target", None)])
+                           if isinstance(t, ast.Name) and t.id == var]
+                if isinstance(n, ast.AugAssign) and touches:
+                    if (isinstance(n.op, ast.Add) and isinstance(n.value, ast.List)
+                            and all(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                                    for e in n.value.elts)):
+                        tmpl = tmpl + [e.value for e in n.value.elts]
+                    else:
+                        ok = False
+                elif isinstance(n, ast.Assign) and touches and n is not owner:
                     ok = False
-            elif isinstance(n, ast.Assign) and touches and n is not lists[0]:
-                ok = False
-            elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
-                  and n.value.id == var):
-                ok = False  # cmd.append(x), cmd.extend(y), …
-        if ok:
-            out[fn.name] = (params, tmpl)
+                elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                      and n.value.id == var):
+                    ok = False  # cmd.append(x), cmd.extend(y), …
+            if not ok:
+                continue
+        else:
+            parent = next((n for n in ast.walk(fn) if isinstance(n, ast.Call) and lst in n.args), None)
+            if parent is None:
+                continue  # `["glab", …] + extra` or stored somewhere unseen
+        out[fn.name] = (params, tmpl)
     return out
 
 

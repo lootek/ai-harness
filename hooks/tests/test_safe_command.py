@@ -1167,3 +1167,61 @@ EOF'''
 def test_mr_blocks_is_an_mr_write(cmd: str, expected: str):
     decision, reason = evaluate(cmd)
     assert decision == expected, f"got {decision}: {reason}"
+
+
+# ── a glab api wrapper's call sites are resolved (v2.8.3) ──────────────────
+_WRAP = '''cd mr && python3 - <<'EOF'
+import json, subprocess, os
+env = {k: v for k, v in os.environ.items() if k != "GITLAB_TOKEN"}
+s = json.load(open("state.json")); iid = s["setup"]["iid"]
+base = f"projects/grp%2Frepo/merge_requests/{iid}"
+def call(method, path, payload=None):
+    cmd = ["glab","api","--method",method,path]
+    if payload is not None:
+        open("payload.json","w").write(json.dumps(payload)); cmd += ["--header","Content-Type: application/json","--input","payload.json"]
+    r = subprocess.run(cmd, env=env, capture_output=True, text=True); return r.returncode, r.stdout
+ds = json.loads(call("GET", base + "/discussions?per_page=100")[1])
+did = next(d["id"] for d in ds if d["id"].startswith("ebc4"))
+reply = "a reply"
+print("reply", call("POST", f"{base}/discussions/{did}/notes", {"body": reply})[0])
+m = json.loads(call("GET", base)[1]); d = m["description"]
+if "x" not in d:
+    print("desc", call("PUT", base, {"description": d + "x"})[0])
+EOF'''
+
+WRAPPER_OK = [
+    _WRAP,
+    _WRAP.replace('call("PUT", base, {', 'call(method="PUT", path=base, payload={'),
+    _WRAP.replace('call("POST", f"{base}/discussions/{did}/notes"',
+                  'call("POST", base + "/notes"'),
+]
+WRAPPER_ASK = [
+    _WRAP.replace('call("PUT", base,', 'call("DELETE", base,'),
+    _WRAP.replace('call("PUT", base,', 'call("PUT", base + "/merge",'),
+    _WRAP.replace('call("PUT", base,', 'call("PUT", m["web_url"],'),
+    _WRAP.replace('call("PUT", base,', 'call(verb, base,'),
+    _WRAP.replace('reply = "a reply"', 'reply = "a reply"\nverb = "DELETE"').replace('call("PUT", base,', 'call(verb, base,'),
+    _WRAP.replace('call("PUT", base,', 'call(*a, base,'),
+    _WRAP.replace('call("PUT", base,', 'call("PUT", did,'),
+    # base bound twice: which one runs is a runtime question
+    _WRAP.replace('reply = "a reply"', 'reply = "a reply"\nbase = "projects/1"'),
+    _WRAP.replace('base = f"projects/grp%2Frepo/merge_requests/{iid}"', 'base = f"projects/{iid}"'),
+    # the wrapper's argv can be changed in ways the template cannot see
+    _WRAP.replace('    r = subprocess.run(cmd', '    cmd.append(extra)\n    r = subprocess.run(cmd'),
+    _WRAP.replace('cmd += ["--header"', 'cmd += [extra, "--header"'),
+    _WRAP.replace('    r = subprocess.run(cmd', '    cmd = ["glab","api","-X","DELETE",path]\n    r = subprocess.run(cmd'),
+    # an approved call does not cover another write on the same line
+    _WRAP.replace('print("desc", call("PUT", base,', 'os.system("glab api -X DELETE projects/1"); print("desc", call("PUT", base,'),
+]
+
+
+@pytest.mark.parametrize("cmd", WRAPPER_OK, ids=range(len(WRAPPER_OK)))
+def test_wrapper_mr_write_does_not_ask(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "allow", f"got {decision}: {reason}"
+
+
+@pytest.mark.parametrize("cmd", WRAPPER_ASK, ids=range(len(WRAPPER_ASK)))
+def test_wrapper_other_write_still_asks(cmd: str):
+    decision, reason = evaluate(cmd)
+    assert decision == "ask", f"got {decision}: {reason}"

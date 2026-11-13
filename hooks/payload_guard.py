@@ -341,10 +341,163 @@ def _drop_approved_lists(line: str, argv_ok) -> str:
     return out
 
 
+# `def call(method, path): cmd = ["glab", "api", "--method", method, path]`
+# hides the verb and the endpoint from every line. For such a wrapper, each
+# call site is resolved: string literals, f-strings, `+`, and names bound
+# exactly once in the script to one of those. A field that does not resolve
+# reads as `1`, as in a list literal; a bare unresolved name fails the site.
+_PY_HEREDOC = re.compile(
+    r"\bpython[\d.]*\b[^\n]*?<<-?\s*(['\"]?)(\w+)\1[^\n]*\n(.*?)\n\2[ \t]*(?:\n|$)", re.S)
+
+
+def _python_sources(text: str) -> list[str]:
+    try:
+        ast.parse(text)
+        return [text]
+    except SyntaxError:
+        return [m.group(3) for m in _PY_HEREDOC.finditer(text)]
+
+
+class _Resolver:
+    def __init__(self, tree: ast.AST):
+        binds: dict[str, list[ast.AST | None]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                binds.setdefault(node.targets[0].id, []).append(node.value)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                binds.setdefault(node.id, []).append(None)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for a in node.args.args + node.args.kwonlyargs:
+                    binds.setdefault(a.arg, []).append(None)
+        # Assign targets are walked as Store names too: drop that echo.
+        self.values = {k: [v for v in vs if v is not None] for k, vs in binds.items()}
+        self.counts = {k: len(vs) - len(self.values[k]) for k, vs in binds.items()}
+
+    def _bound_once(self, name: str) -> ast.AST | None:
+        vals = self.values.get(name, [])
+        return vals[0] if len(vals) == 1 and self.counts.get(name) == 1 else None
+
+    def string(self, node: ast.AST, depth: int = 0) -> str | None:
+        if depth > 8:
+            return None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            a, b = self.string(node.left, depth + 1), self.string(node.right, depth + 1)
+            return None if a is None or b is None else a + b
+        if isinstance(node, ast.Name):
+            v = self._bound_once(node.id)
+            return None if v is None else self.string(v, depth + 1)
+        if isinstance(node, ast.JoinedStr):
+            parts = []
+            for v in node.values:
+                if isinstance(v, ast.Constant):
+                    parts.append(v.value)
+                    continue
+                if not (isinstance(v, ast.FormattedValue) and v.conversion == -1
+                        and v.format_spec is None and _fstring_field_ok(v.value)):
+                    return None
+                inner = self.string(v.value, depth + 1) if isinstance(v.value, ast.Name) else None
+                parts.append("1" if inner is None else inner)
+            return "".join(parts)
+        return None
+
+
+def _glab_wrappers(tree: ast.AST) -> dict[str, tuple[list[str], list]]:
+    """name -> (params, argv template), the template holding str or a param
+    index. Only a single list assignment, plus `+=` of string literals."""
+    out = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, ast.FunctionDef) or fn.args.vararg or fn.args.kwarg:
+            continue
+        params = [a.arg for a in fn.args.args]
+        lists = [n for n in ast.walk(fn) if isinstance(n, ast.Assign) and len(n.targets) == 1
+                 and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.List)]
+        if len(lists) != 1:
+            continue
+        var = lists[0].targets[0].id
+        tmpl: list = []
+        for el in lists[0].value.elts:
+            if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                tmpl.append(el.value)
+            elif isinstance(el, ast.Name) and el.id in params:
+                tmpl.append(params.index(el.id))
+            else:
+                tmpl = []
+                break
+        if tmpl[:2] != ["glab", "api"]:
+            continue
+        ok = True
+        for n in ast.walk(fn):
+            touches = [t for t in getattr(n, "targets", [getattr(n, "target", None)])
+                       if isinstance(t, ast.Name) and t.id == var]
+            if isinstance(n, ast.AugAssign) and touches:
+                if (isinstance(n.op, ast.Add) and isinstance(n.value, ast.List)
+                        and all(isinstance(e, ast.Constant) and isinstance(e.value, str)
+                                for e in n.value.elts)):
+                    tmpl += [e.value for e in n.value.elts]
+                else:
+                    ok = False
+            elif isinstance(n, ast.Assign) and touches and n is not lists[0]:
+                ok = False
+            elif (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                  and n.value.id == var):
+                ok = False  # cmd.append(x), cmd.extend(y), …
+        if ok:
+            out[fn.name] = (params, tmpl)
+    return out
+
+
+def _method_of(argv: list) -> str | None:
+    for i, a in enumerate(argv):
+        if a in ("-X", "--method", "--request"):
+            return argv[i + 1] if i + 1 < len(argv) else None
+        if isinstance(a, str) and a.startswith(("--method=", "-X")) and len(a) > 2:
+            return a.split("=", 1)[1] if "=" in a else a[2:]
+    return "GET"
+
+
+def _approved_wrapper_calls(text: str, argv_ok) -> tuple[list[str], list[tuple[int, str]]]:
+    """(approved, flagged). approved: source of each wrapper call site whose
+    argv argv_ok approves, whitespace collapsed the way logical_lines joins a
+    line. flagged: (lineno, source) of sites that write, or may write,
+    something argv_ok does not approve — no single line shows those."""
+    segs, flagged = [], []
+    for src in _python_sources(text):
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        offset = text[:max(text.find(src), 0)].count("\n")
+        wrappers = _glab_wrappers(tree)
+        if not wrappers:
+            continue
+        res = _Resolver(tree)
+        for call in ast.walk(tree):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                    and call.func.id in wrappers):
+                continue
+            params, tmpl = wrappers[call.func.id]
+            args: dict[int, ast.AST] = dict(enumerate(call.args))
+            for kw in call.keywords:
+                if kw.arg in params:
+                    args[params.index(kw.arg)] = kw.value
+            argv = [t if isinstance(t, str) else (res.string(args[t]) if t in args else None)
+                    for t in tmpl]
+            seg = " ".join(ln.strip() for ln in (ast.get_source_segment(src, call) or "").splitlines())
+            if None not in argv and argv_ok(argv):
+                segs.append(seg)
+            elif (_method_of(argv) or "?").upper() != "GET":
+                flagged.append((offset + call.lineno, seg))
+    return segs, flagged
+
+
 def scan_text(text: str, source: str = "<payload>", argv_ok=None) -> list[Finding]:
     """argv_ok(argv) -> bool marks a subprocess argv list as pre-approved."""
     out: list[Finding] = []
     docs = docstring_lines(text)
+    wrapped, flagged = (_approved_wrapper_calls(text, argv_ok)
+                        if argv_ok and "glab" in text else ([], []))
     for i, raw in logical_lines(text):
         stripped = raw.strip()
         if not stripped or stripped.startswith("#") or DATA_LINE.search(stripped):
@@ -357,8 +510,11 @@ def scan_text(text: str, source: str = "<payload>", argv_ok=None) -> list[Findin
         if any(pat.search(norm) or pat.search(stripped) for _, pat in EXEMPT):
             continue
         rest = norm
-        if argv_ok and "[" in stripped:
-            rest = normalize_line(_drop_approved_lists(stripped, argv_ok))
+        if argv_ok and ("[" in stripped or wrapped):
+            line = _drop_approved_lists(stripped, argv_ok)
+            for seg in wrapped:
+                line = line.replace(seg, "x()")
+            rest = normalize_line(line)
         for reason, pat, needs_sensitive in PATTERNS:
             if not pat.search(rest):
                 continue
@@ -366,6 +522,9 @@ def scan_text(text: str, source: str = "<payload>", argv_ok=None) -> list[Findin
                 continue
             out.append(Finding(i, reason, stripped[:EXCERPT], source))
             break
+    for lineno, seg in flagged:
+        out.append(Finding(lineno, "glab api wrapper call with a write it cannot "
+                                   "show pre-approved", seg[:EXCERPT], source))
     if not out:
         code = _code_only(text, docs)
         m = VAR_METHOD_CALL.search(code)

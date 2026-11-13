@@ -119,12 +119,14 @@ SENSITIVE_TARGET = re.compile(
     r"\brm\s+-\w*[rf]\w*\s+/(?:\s|$|\*)|\$\{?(?:REPO|ROOT|DEST|TARGET|DIR)\b", re.I)
 
 
+# A flag is matched after `\s`, never `\b`: no word boundary sits between a
+# space and `-`, which kept `glab api -X DELETE` from ever matching.
 # (reason, body, anchored, needs_sensitive_target). `anchored` bodies are shell
 # commands and only count at a command position; unanchored ones are library
 # calls, where there is no shell position to anchor to.
 _SPECS: list[tuple[str, str, bool, bool]] = [
     ("glab/gh api mutating method",
-     r"(glab|gh)\s+api\b.*?\b(--method|-X)\s+(POST|PUT|PATCH|DELETE)\b", True, False),
+     r"(glab|gh)\s+api\b.*?\s(--method|--request|-X)\s*(POST|PUT|PATCH|DELETE)\b", True, False),
     ("glab/gh api mutating body",
      r"(glab|gh)\s+api\b(?=.*\b(POST|PUT|PATCH|DELETE)\b).*?--(method|input|field)\b", True, False),
     ("glab/gh mr|pr mutation",

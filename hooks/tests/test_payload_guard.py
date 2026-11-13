@@ -143,3 +143,13 @@ GAPS = [
                    strict=True)
 def test_known_gaps(label: str, command: str):
     assert decide_command(command) == "ask"
+
+
+# `\b-X` never matched after a space, so a -X method was invisible.
+@pytest.mark.parametrize("line", [
+    'subprocess.run(["glab", "api", "-X", "DELETE", "projects/1"])',
+    'subprocess.run(["gh", "api", "-XPATCH", "repos/o/r"])',
+    'subprocess.run(["glab", "api", "--method=PUT", "projects/1"])',
+])
+def test_short_method_flag_asks(line: str):
+    assert decide_command(f"python3 - <<'EOF'\nimport subprocess\n{line}\nEOF") == "ask"

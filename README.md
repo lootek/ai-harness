@@ -25,6 +25,9 @@ shared across the CLIs.
     skills/             portable skills
     plugins/            claude plugin bundles (lootek marketplace)
     agents/             subagent definitions
+    mcp/memory/         shared curated memory MCP server (stdlib only): one
+                        Markdown store for claude + codex, with dedup,
+                        supersede and hash-checked edits
 
 ## Usage
 

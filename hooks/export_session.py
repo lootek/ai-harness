@@ -11,9 +11,10 @@ Two transcript formats:
   Codex clamps SessionEnd hooks to 3 s; the renderer stops at a time budget
   and the next PreCompact/SessionEnd continues from the saved offset.
 
-Run gate: the Claude dump has been switched off since the first harness
-commit (main() was never called). Codex rollouts dump by default; Claude
-transcripts only with AI_EXPORT_SESSION_CLAUDE=1.
+Run gate: off by default for both CLIs. Each keeps its full transcripts
+anyway (~/.claude/projects, ~/.codex/sessions), so the .md copy is opt-in:
+AI_EXPORT_SESSION_CLAUDE=1 for Claude transcripts, AI_EXPORT_SESSION_CODEX=1
+for Codex rollouts.
 
 Session dir resolution mirrors log_commands.py:
 1. payload cwd, then $PWD, if under ~/tmp/claude/ctx/<alias>/
@@ -346,8 +347,9 @@ def main() -> None:
     transcript_path = payload.get("transcript_path", "") or ""
     if not transcript_path:
         sys.exit(0)
-    if not is_codex_rollout(Path(transcript_path)) and os.environ.get("AI_EXPORT_SESSION_CLAUDE") != "1":
-        sys.exit(0)  # Claude dump stays off, as it has been since the first harness commit
+    flag = "AI_EXPORT_SESSION_CODEX" if is_codex_rollout(Path(transcript_path)) else "AI_EXPORT_SESSION_CLAUDE"
+    if os.environ.get(flag) != "1":
+        sys.exit(0)  # off by default: both CLIs keep their own full transcripts
 
     session_dir = resolve_session_dir(payload.get("session_id", ""), payload.get("cwd"))
     if session_dir is None:

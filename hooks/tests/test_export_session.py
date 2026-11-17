@@ -2,9 +2,8 @@
 
 Codex rollouts (~/.codex/sessions/**/rollout-*.jsonl) start with a session_meta
 line and keep the conversation in response_item lines; progress is a byte
-offset so a re-run never re-renders. Claude transcripts are dumped only with
-AI_EXPORT_SESSION_CLAUDE=1 (the dump has been off for Claude since the first
-harness commit).
+offset so a re-run never re-renders. The dump is off by default for both CLIs:
+AI_EXPORT_SESSION_CODEX=1 / AI_EXPORT_SESSION_CLAUDE=1 opt in.
 """
 from __future__ import annotations
 
@@ -110,17 +109,19 @@ def fake_ctx(tmp_path: Path) -> tuple[Path, Path]:
     return home, alias
 
 
-def test_hook_writes_full_dump_for_codex(tmp_path):
+def test_hook_writes_full_dump_for_codex_when_opted_in(tmp_path):
     home, alias = fake_ctx(tmp_path)
     p = rollout(tmp_path)
     payload = {"session_id": "abc", "transcript_path": str(p), "cwd": str(alias),
                "hook_event_name": "SessionEnd", "reason": "exit"}
-    r = run_hook(payload, home)
-    assert r.returncode == 0
+    assert run_hook(payload, home).returncode == 0
+    assert not (alias / ".full_dump.md").exists()  # off by default
+    on = {"AI_EXPORT_SESSION_CODEX": "1"}
+    assert run_hook(payload, home, on).returncode == 0
     dump = (alias / ".full_dump.md").read_text()
     assert dump.startswith("# Session: probe-alias — Full Dump")
     assert "## SessionEnd (exit)" in dump and "hello codex" in dump
-    run_hook(payload, home)  # nothing new: no second section
+    run_hook(payload, home, on)  # nothing new: no second section
     assert (alias / ".full_dump.md").read_text().count("## SessionEnd") == 1
 
 

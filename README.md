@@ -15,7 +15,7 @@ shared across the CLIs.
     scripts/            repo tooling (leak-scan.sh)
     hooks/              engines: safe_command + payload_guard (safety),
                         log_commands + prompt_history (history),
-                        export_session (codex rollouts; claude opt-in),
+                        export_session (.md transcript copy, opt-in),
                         claude-only flush_stale_dumps/session-env-check
     adapters/codex/     codex hook wiring: envelope adapter (ASK -> codex
                         approval prompt via the safe_command_ask gate +

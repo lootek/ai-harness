@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """
-Claude Code SessionEnd hook: append the session transcript to
-full_dump.md in the active session context directory.
+Claude Code / Codex SessionEnd + PreCompact hook: append the session
+transcript to .full_dump.md in the active session context directory.
+
+Two transcript formats:
+- Claude Code JSONL (`type` user/assistant, progress keyed by `uuid`).
+- Codex rollout JSONL (~/.codex/sessions/**/rollout-*.jsonl: first line
+  `session_meta`, conversation in `response_item` lines). Progress is a byte
+  offset, so a re-run seeks past what is already dumped instead of re-parsing.
+  Codex clamps SessionEnd hooks to 3 s; the renderer stops at a time budget
+  and the next PreCompact/SessionEnd continues from the saved offset.
+
+Run gate: the Claude dump has been switched off since the first harness
+commit (main() was never called). Codex rollouts dump by default; Claude
+transcripts only with AI_EXPORT_SESSION_CLAUDE=1.
 
 Session dir resolution mirrors log_commands.py:
-1. $PWD if under ~/tmp/claude/ctx/<alias>/
+1. payload cwd, then $PWD, if under ~/tmp/claude/ctx/<alias>/
 2. Match session_id against ~/tmp/claude/ctx/*/.session files
 3. Fall back to the most recently modified session dir
 """
@@ -12,14 +24,21 @@ Session dir resolution mirrors log_commands.py:
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
 CTX_ROOT = Path.home() / "tmp" / "claude" / "ctx"
+CODEX_BUDGET_S = 2.0       # of the 3 s SessionEnd clamp; python startup eats the rest
+CODEX_OFFSET_PREFIX = "codex-offset:"
+TOOL_OUTPUT_MAX = 4000
 
 
-def find_session_dir_by_cwd() -> Path | None:
-    cwd = Path(os.getcwd()).resolve()
+def find_session_dir_by_cwd(cwd_str: str | None = None) -> Path | None:
+    try:
+        cwd = Path(cwd_str or os.getcwd()).resolve()
+    except OSError:
+        return None
     ctx_resolved = CTX_ROOT.resolve()
     if cwd == ctx_resolved:
         return None
@@ -149,6 +168,111 @@ def render_transcript(transcript_path: Path, skip_until_uuid: str | None) -> tup
     return "\n\n---\n\n".join(lines), last_uuid
 
 
+def is_codex_rollout(transcript_path: Path) -> bool:
+    try:
+        with open(transcript_path, "rb") as f:
+            head = f.read(200)
+    except OSError:
+        return False
+    return b'"type":"session_meta"' in head or b'"type": "session_meta"' in head
+
+
+# Injected context Codex records as role=user messages; not something Piotr typed.
+_CODEX_INJECTED = ("<environment_context>", "<user_instructions>", "# AGENTS.md instructions",
+                   "<permissions instructions>", "<skills_instructions>", "<turn_aborted>", "<skill>")
+
+
+def _codex_text(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    return "\n\n".join(
+        str(c.get("text", "")).strip() for c in content
+        if isinstance(c, dict) and c.get("type") in ("input_text", "output_text", "text")
+        and str(c.get("text", "")).strip()
+    )
+
+
+def _truncate(s: str) -> str:
+    s = s.strip()
+    return s[:TOOL_OUTPUT_MAX] + "\n... [truncated]" if len(s) > TOOL_OUTPUT_MAX else s
+
+
+def _codex_block(p: dict) -> tuple[str, str] | None:
+    """One response_item payload -> (role, markdown body), or None to skip."""
+    t = p.get("type")
+    if t == "message":
+        role = p.get("role")
+        if role not in ("user", "assistant"):
+            return None
+        body = _codex_text(p.get("content"))
+        if not body or (role == "user" and body.lstrip().startswith(_CODEX_INJECTED)):
+            return None
+        return ("User" if role == "user" else "Assistant", body)
+    if t == "reasoning":
+        summ = "\n".join(str(s.get("text", "")).strip() for s in p.get("summary") or []
+                         if isinstance(s, dict) and s.get("text"))
+        return ("Assistant", f"<thinking>\n{summ}\n</thinking>") if summ else None
+    if t in ("custom_tool_call", "function_call", "local_shell_call"):
+        name = p.get("name") or t
+        if p.get("namespace"):
+            name = f"{p['namespace']}.{name}"
+        raw = p.get("input") if t == "custom_tool_call" else p.get("arguments", p.get("action"))
+        if not isinstance(raw, str):
+            raw = json.dumps(raw, indent=2, ensure_ascii=False)
+        return ("Assistant", f"**Tool call: {name}**\n```\n{_truncate(raw)}\n```")
+    if t in ("custom_tool_call_output", "function_call_output"):
+        out = p.get("output")
+        if isinstance(out, dict):
+            out = out.get("content", out)
+        text = _codex_text(out) if isinstance(out, list) else str(out or "")
+        return ("Tool", f"**Tool result:**\n```\n{_truncate(text)}\n```") if text.strip() else None
+    return None
+
+
+def render_codex_rollout(transcript_path: Path, skip_marker: str | None,
+                         budget_s: float = CODEX_BUDGET_S) -> tuple[str, str | None]:
+    """Render response_items after the saved byte offset. Returns (rendered, new marker)."""
+    offset = 0
+    if skip_marker and skip_marker.startswith(CODEX_OFFSET_PREFIX):
+        try:
+            offset = int(skip_marker[len(CODEX_OFFSET_PREFIX):])
+        except ValueError:
+            offset = 0
+    deadline = time.monotonic() + budget_s
+    lines = []
+    try:
+        with open(transcript_path, "rb") as f:
+            if offset:
+                f.seek(offset)
+            while True:
+                if time.monotonic() > deadline:
+                    break
+                raw = f.readline()
+                if not raw:
+                    break
+                if not raw.endswith(b"\n"):
+                    break  # partial line still being written: resume here next time
+                offset = f.tell()
+                # Cheap prefilter: world_state/turn_context lines are most of the bytes.
+                if b'"type":"response_item"' not in raw[:200]:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except ValueError:
+                    continue
+                blk = _codex_block(entry.get("payload") or {})
+                if not blk:
+                    continue
+                role, body = blk
+                ts = entry.get("timestamp", "")
+                lines.append(f"### {role}{' — ' + ts if ts else ''}\n\n{body}")
+    except OSError as e:
+        return f"_Failed to read transcript: {e}_", skip_marker
+    return "\n\n---\n\n".join(lines), f"{CODEX_OFFSET_PREFIX}{offset}"
+
+
 def load_state(state_file: Path) -> dict:
     if not state_file.exists():
         return {}
@@ -180,8 +304,14 @@ def dump_transcript(session_dir: Path, transcript_path: str, reason: str, event:
     transcripts = state.setdefault("transcripts", {})
     skip_until = transcripts.get(transcript_path)
 
-    body, last_uuid = render_transcript(tpath, skip_until)
+    if is_codex_rollout(tpath):
+        body, last_uuid = render_codex_rollout(tpath, skip_until)
+    else:
+        body, last_uuid = render_transcript(tpath, skip_until)
     if not body:
+        if last_uuid and last_uuid != skip_until:
+            transcripts[transcript_path] = last_uuid
+            save_state(state_file, state)
         return False
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -198,9 +328,10 @@ def dump_transcript(session_dir: Path, transcript_path: str, reason: str, event:
     return True
 
 
-def resolve_session_dir(session_id: str) -> Path | None:
+def resolve_session_dir(session_id: str, cwd: str | None = None) -> Path | None:
     return (
-        find_session_dir_by_cwd()
+        (find_session_dir_by_cwd(cwd) if cwd else None)
+        or find_session_dir_by_cwd()
         or find_session_dir_by_id(session_id)
         or find_session_dir_by_recency()
     )
@@ -212,11 +343,13 @@ def main() -> None:
     except (json.JSONDecodeError, EOFError):
         sys.exit(0)
 
-    transcript_path = payload.get("transcript_path", "")
+    transcript_path = payload.get("transcript_path", "") or ""
     if not transcript_path:
         sys.exit(0)
+    if not is_codex_rollout(Path(transcript_path)) and os.environ.get("AI_EXPORT_SESSION_CLAUDE") != "1":
+        sys.exit(0)  # Claude dump stays off, as it has been since the first harness commit
 
-    session_dir = resolve_session_dir(payload.get("session_id", ""))
+    session_dir = resolve_session_dir(payload.get("session_id", ""), payload.get("cwd"))
     if session_dir is None:
         sys.exit(0)
 
@@ -230,5 +363,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # main()
-    pass
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:  # noqa: BLE001 — a dump must never break a session end
+        sys.exit(0)

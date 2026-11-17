@@ -14,8 +14,9 @@ shared across the CLIs.
     populate.sh         capture live picker artifacts back into the repo
     scripts/            repo tooling (leak-scan.sh)
     hooks/              engines: safe_command + payload_guard (safety),
-                        log_commands + prompt_history (history), claude-only
-                        export_session/flush_stale_dumps/session-env-check
+                        log_commands + prompt_history (history),
+                        export_session (codex rollouts; claude opt-in),
+                        claude-only flush_stale_dumps/session-env-check
     adapters/codex/     codex hook wiring: envelope adapter (ASK -> codex
                         approval prompt via the safe_command_ask gate +
                         exec-policy rule; apply_patch guard) + history

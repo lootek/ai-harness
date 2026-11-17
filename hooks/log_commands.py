@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Claude Code PostToolUse hook: logs Bash, Edit, and Write tool calls
-to commands_history.md in the active session context directory.
+Claude Code PostToolUse hook: logs Bash, Edit, and Write tool calls (and
+Codex apply_patch) to commands_history.md in the active session context directory.
 
 Session dir resolution (in order):
 1. Match session_id from payload against ~/tmp/claude/ctx/*/.session files
@@ -113,10 +113,25 @@ def format_write(tool_input: dict) -> str:
     return f"**Write** `{fp}` ({line_count} lines)"
 
 
+_PATCH_OPS = (("*** Add File: ", "add"), ("*** Update File: ", "update"),
+              ("*** Delete File: ", "delete"), ("*** Move to: ", "move to"))
+
+
+def format_apply_patch(tool_input: dict) -> str:
+    """Codex apply_patch: tool_input.command is the patch text; list its file ops."""
+    lines = str(tool_input.get("command", "") or "").splitlines()
+    ops = [f"  - {op} `{ln[len(prefix):].strip()}`"
+           for ln in lines for prefix, op in _PATCH_OPS if ln.startswith(prefix)]
+    added = sum(1 for ln in lines if ln.startswith("+"))
+    removed = sum(1 for ln in lines if ln.startswith("-"))
+    return "\n".join([f"**apply_patch** (+{added}/-{removed})"] + ops)
+
+
 FORMATTERS = {
     "Bash": format_bash,
     "Edit": format_edit,
     "Write": format_write,
+    "apply_patch": format_apply_patch,
 }
 
 

@@ -107,6 +107,20 @@ def test_edit_and_write_formats_match_engine(fake_home: Path):
     assert "**Write** `/tmp/new-file.md` (2 lines)" in text
 
 
+def test_apply_patch_lists_file_ops(fake_home: Path):
+    patch = ("*** Begin Patch\n*** Add File: /tmp/a.txt\n+one\n+two\n"
+             "*** Update File: b.py\n@@\n-old\n+new\n"
+             "*** Delete File: c.md\n*** End Patch")
+    proc = run_adapter(_LOG_ADAPTER, post_payload(
+        fake_home, "apply_patch", {"command": patch}), fake_home)
+    assert proc.returncode == 0
+    text = history(fake_home, ".commands_history.md")
+    assert "**apply_patch** (+3/-1)" in text
+    assert "  - add `/tmp/a.txt`" in text
+    assert "  - update `b.py`" in text
+    assert "  - delete `c.md`" in text
+
+
 def test_unknown_tool_noop(fake_home: Path):
     run_adapter(_LOG_ADAPTER, post_payload(fake_home, "Bash",
                                            {"command": "echo x"}), fake_home)

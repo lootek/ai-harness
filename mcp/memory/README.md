@@ -59,6 +59,24 @@ Then tell every CLI, in its global instructions, to use the `memory_*` tools for
 memory reads and writes instead of editing the files. Claude Code's built-in
 auto-memory would otherwise keep writing files directly and skip the checks.
 
+## Hooks (optional)
+
+Both read the store's location from the server registration above, so there is
+one place to change it.
+
+- `hooks/memory_guard.py`: Claude Code PreToolUse, matcher
+  `Write|Edit|MultiEdit|NotebookEdit`. It denies a file tool aimed into the store
+  and points at the `memory_*` tools. Codex's `apply_patch` gets the same check in
+  the Codex adapter (`safe_command_codex.py`). Shell redirects are not covered.
+- `hooks/memory_index_context.py`: Codex SessionStart. It injects `MEMORY.md` as
+  `additionalContext` (capped at 200 lines / 25 KB), as Claude Code does
+  natively. Codex needs a one-time trust for the new hook.
+
+```json
+{"matcher": "Write|Edit|MultiEdit|NotebookEdit",
+ "hooks": [{"type": "command", "command": "python3 /abs/path/mcp/memory/hooks/memory_guard.py", "timeout": 5}]}
+```
+
 ## CLI
 
 ```sh

@@ -206,6 +206,33 @@ def test_apply_patch_guard_files_denied(monkeypatch, capsys, tmp_path, gate_home
     assert envelope_of(out)["permissionDecision"] == "deny"
 
 
+def test_apply_patch_memory_store_denied(monkeypatch, capsys, tmp_path, gate_home):
+    monkeypatch.delenv("AI_MEMORY_DIR", raising=False)
+    mem = tmp_path / "mem"
+    mem.mkdir()
+    (tmp_path / "codex").mkdir(exist_ok=True)
+    (tmp_path / "codex" / "config.toml").write_text(
+        f'[mcp_servers.memory.env]\nAI_MEMORY_DIR = "{mem}"\n')
+    eng = FakeEngine("allow", "")
+    for target in (mem / "MEMORY.md", mem / "feedback_x.md"):
+        p = f"*** Begin Patch\n*** Add File: {target}\n+x\n*** End Patch"
+        out, _ = run_adapter(monkeypatch, patch_stdin(p), eng)
+        env = envelope_of(out)
+        assert env["permissionDecision"] == "deny", target
+        assert "memory_" in env["permissionDecisionReason"]
+        capsys.readouterr()
+    p = f"*** Begin Patch\n*** Add File: {tmp_path / 'other.md'}\n+x\n*** End Patch"
+    out, code = run_adapter(monkeypatch, patch_stdin(p), eng)
+    assert out is None and code == 0
+
+
+def test_apply_patch_no_memory_server_no_guard(monkeypatch, capsys, tmp_path, gate_home):
+    monkeypatch.delenv("AI_MEMORY_DIR", raising=False)
+    p = f"*** Begin Patch\n*** Add File: {tmp_path / 'mem' / 'MEMORY.md'}\n+x\n*** End Patch"
+    out, code = run_adapter(monkeypatch, patch_stdin(p), FakeEngine("allow", ""))
+    assert out is None and code == 0
+
+
 # ── the gate itself ──────────────────────────────────────────────────────────
 
 _GATE_SRC = _ADAPTER.with_name("safe_command_ask")

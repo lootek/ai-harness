@@ -45,7 +45,9 @@ behaviour), with a `!`-ready command for the human.
 apply_patch: denied when a target file carries the uchg/schg flag (use the
 chflags unlock -> write -> relock chain in ONE shell command; chflags itself
 prompts), or is one of the guard's own files (exec-policy rules, hooks.json,
-this adapter, the gate, the engine pair).
+this adapter, the gate, the engine pair), or lies in the shared memory store
+(written only through the `memory` MCP server; its AI_MEMORY_DIR is read from
+the server's [mcp_servers.memory.env] in config.toml).
 
 Trust: codex requires a one-time per-definition trust ("hooks are new or
 changed" in the TUI); until then the hook is silently skipped.
@@ -167,14 +169,33 @@ def protected_paths() -> tuple[list[Path], list[Path]]:
     return [_real(f) for f in files], [_real(d) for d in dirs]
 
 
+def memory_dir() -> Path | None:
+    """The shared memory store, from the memory MCP server's registration."""
+    d = os.environ.get("AI_MEMORY_DIR")
+    if not d:
+        try:
+            import tomllib
+            cfg = tomllib.loads((_CODEX_HOME / "config.toml").read_text())
+            d = cfg["mcp_servers"]["memory"]["env"]["AI_MEMORY_DIR"]
+        except (ImportError, OSError, ValueError, KeyError, TypeError):
+            return None
+    return _real(Path(os.path.expanduser(d)))
+
+
 def check_patch(patch: str, cwd: str) -> str | None:
     """Reason to deny the patch, or None."""
     files, dirs = protected_paths()
+    mem = memory_dir()
     for p in patch_paths(patch, cwd):
         rp = _real(p)
         if rp in files or any(rp == d or d in rp.parents for d in dirs):
             return (f"apply_patch on guard file {rp} — the harness guards itself; "
                     "edit it by hand")
+        if mem is not None and (rp == mem or mem in rp.parents):
+            return (f"{rp.name} is in the shared memory store: write it with the memory_* "
+                    "tools (memory_create / memory_str_replace / memory_insert / "
+                    "memory_supersede; memory_view first for the hash). If they are "
+                    "unavailable in this session, say so and give the user the change instead.")
         try:
             flags = getattr(os.lstat(rp), "st_flags", 0)
         except OSError:

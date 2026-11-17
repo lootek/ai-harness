@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|apply_patch",
         "hooks": [
           {
             "type": "command",
@@ -13,25 +13,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/log_commands_codex.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 __AI_HARNESS_HOME__/adapters/codex/log_commands_codex.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
+        "matcher": "Bash|apply_patch",
         "hooks": [
           {
             "type": "command",

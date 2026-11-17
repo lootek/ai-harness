@@ -16,8 +16,10 @@ shared across the CLIs.
     hooks/              engines: safe_command + payload_guard (safety),
                         log_commands + prompt_history (history), claude-only
                         export_session/flush_stale_dumps/session-env-check
-    adapters/codex/     codex hook wiring: ASK→deny envelope adapter +
-                        history adapters (spawn the engines)
+    adapters/codex/     codex hook wiring: envelope adapter (ASK -> codex
+                        approval prompt via the safe_command_ask gate +
+                        exec-policy rule; apply_patch guard) + history
+                        adapters (spawn the engines)
     adapters/opencode/  opencode plugins: engine shim + history
     skills/             portable skills
     plugins/            claude plugin bundles (lootek marketplace)
@@ -186,11 +188,19 @@ heredocs — ASK only). The engine is owned once here and wired per CLI:
               (spawns ~/.ai-harness/hooks/safe_command.py per shell call)
 
 Both adapters fail closed: malformed hook payload or an engine fault denies
-the command. On codex, engine ASK verdicts are demoted to deny — codex exec
-treats an "ask" as a failed hook and runs the command anyway (verified live,
-codex-cli 0.157.1), so the demotion is what keeps the gate closed; the reason
-keeps an `ASK-demotion (codex):` prefix so the judgment-call origin stays
-visible. On opencode, ASK keeps its own label (`[ai-harness] ASK: …`).
+the command. Codex ignores a hook "ask" (logged as a failed hook, the command
+runs; verified live on codex-cli 0.157.1 and 0.169.0), but it does honour
+`allow` + `updatedInput`, and evaluates the replaced command against its exec
+policy. So an engine ASK rewrites the command to
+`safe_command_ask '<reason>' '<display>' <base64>`, and
+`~/.codex/rules/safe_command.rules` (`decision="prompt"` on the gate) turns it
+into codex's own approval prompt; `codex exec` rejects it, so unattended runs
+fail closed. The gate refuses a display that does not match the payload. No
+`'\''` quoting anywhere: codex's parser gives up on it and the rule would not
+match. Without the gate or the rule, ASK is demoted to deny with an
+`ASK-demotion (codex, …)` prefix and a `!`-ready command. `apply_patch` on a
+uchg-locked file or a guard file (rules, hooks.json, adapter, gate, engine) is
+denied. On opencode, ASK keeps its own label (`[ai-harness] ASK: …`).
 
 opencode 2.x plugin API (the machine runs 2.0.20; 1.x plugins no longer
 load): a plugin is a module with `export default { id, setup(ctx) }` (the

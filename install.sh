@@ -125,8 +125,10 @@ fi
 # ── safety hooks: safe_command + payload_guard, owned once here, wired per CLI ──
 # The engine pair is identical everywhere; only the wiring differs:
 #   claude    runs safe_command.py directly as a PreToolUse hook
-#   codex     runs adapters/codex/safe_command_codex.py (ASK demoted to deny:
-#             codex exec treats "ask" as a failed hook and runs the command)
+#   codex     runs adapters/codex/safe_command_codex.py (codex ignores a hook
+#             "ask", so ASK is rewritten to adapters/codex/safe_command_ask,
+#             which ~/.codex/rules/safe_command.rules turns into codex's own
+#             approval prompt; without that rule ASK is demoted to deny)
 #   opencode  plugin spawns safe_command.py per bash call (ASK keeps its label)
 # Shared audit trail: ~/.claude/hooks/safe_command_audit.jsonl
 # ($AI_SAFE_COMMAND_AUDIT overrides; entries carry each CLI's session id).
@@ -160,9 +162,14 @@ fi
 # codex: adapters + hooks.json (render template, merge into ~/.codex/hooks.json)
 if want codex; then
   mkdir -p "$DST/adapters/codex"
-  for a in safe_command_codex.py log_commands_codex.py prompt_history_codex.py; do
+  for a in safe_command_codex.py safe_command_ask log_commands_codex.py prompt_history_codex.py; do
     install_file "$SRC/adapters/codex/$a" "$DST/adapters/codex/$a" 755
   done
+  # exec-policy rule that makes the ASK gate prompt (rules bind at codex start)
+  mkdir -p "$HOME/.codex/rules"
+  backup_if_exists "$HOME/.codex/rules/safe_command.rules"
+  sed "s|__AI_HARNESS_HOME__|$DST|g" "$SRC/adapters/codex/safe_command.rules" \
+    > "$HOME/.codex/rules/safe_command.rules"
   CODEX_HOOKS="$HOME/.codex/hooks.json"
   mkdir -p "$HOME/.codex"
   backup_if_exists "$CODEX_HOOKS"

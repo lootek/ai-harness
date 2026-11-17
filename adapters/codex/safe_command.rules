@@ -1,0 +1,7 @@
+# Codex exec policy: prompt on the safe_command ASK gate.
+#
+# safe_command_codex.py rewrites a command the engine wants confirmed into a
+# call of this program; this rule turns that into codex's own approval prompt
+# (codex exec, approval never: rejected). Without it the adapter keeps the old
+# ASK-to-deny behaviour. Rendered by install.sh into ~/.codex/rules/.
+prefix_rule(pattern=["__AI_HARNESS_HOME__/adapters/codex/safe_command_ask"], decision="prompt")

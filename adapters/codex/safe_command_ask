@@ -1,0 +1,48 @@
+#!/usr/bin/env -S python3 -I
+"""safe_command ASK gate for codex.
+
+    safe_command_ask '<reason>' '<display>' <base64 command>
+
+safe_command_codex.py rewrites a command the engine wants confirmed into this
+form; ~/.codex/rules/safe_command.rules makes codex prompt on this program, so
+by the time it runs a human has approved it in codex's own prompt. It decodes
+the command, checks that <display> is exactly what the adapter would have
+shown for it (so a hand-built call cannot show one command and run another),
+and execs the user's shell on it. Exit 126 on any mismatch.
+"""
+import base64
+import binascii
+import os
+import sys
+
+
+def display_of(command: str) -> str:
+    return command.replace("'", "’")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 4:
+        print("safe_command_ask: usage: safe_command_ask <reason> <display> <b64>", file=sys.stderr)
+        return 126
+    _, reason, display, b64 = argv
+    try:
+        command = base64.b64decode(b64, validate=True).decode()
+    except (binascii.Error, UnicodeDecodeError):
+        print("safe_command_ask: payload is not base64 UTF-8; refusing", file=sys.stderr)
+        return 126
+    if display_of(command) != display:
+        print("safe_command_ask: shown command differs from the payload; refusing", file=sys.stderr)
+        return 126
+    shell = os.environ.get("SHELL") or "/bin/zsh"
+    if not os.path.isabs(shell) or not os.access(shell, os.X_OK):
+        shell = "/bin/sh"
+    sys.stdout.flush()
+    try:
+        os.execv(shell, [shell, "-c", command])
+    except OSError as exc:
+        print(f"safe_command_ask: cannot exec {shell}: {exc}", file=sys.stderr)
+        return 126
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

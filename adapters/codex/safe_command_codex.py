@@ -42,6 +42,11 @@ why the display swaps ' for U+2019 instead of escaping it.
 If the gate or the rule is missing the ASK stays a deny (the pre-0.169
 behaviour), with a `!`-ready command for the human.
 
+Interactive sessions: a command that opens something codex could type into
+later with write_stdin (a shell with no command, ssh with no remote command,
+`docker/kubectl exec -i`, su, sudo -i, tmux/screen, script, expect) is an ASK,
+because the typed lines reach no hook. REPLs are not covered.
+
 apply_patch: denied when a target file carries the uchg/schg flag (use the
 chflags unlock -> write -> relock chain in ONE shell command; chflags itself
 prompts), or is one of the guard's own files (exec-policy rules, hooks.json,
@@ -63,6 +68,8 @@ import base64
 import importlib.util
 import json
 import os
+import re
+import shlex
 import stat
 import sys
 from pathlib import Path
@@ -207,6 +214,207 @@ def check_patch(patch: str, cwd: str) -> str | None:
     return None
 
 
+# ── interactive sessions (write_stdin) ───────────────────────────────────────
+#
+# codex can start a TTY session (exec_command) and then type into it with
+# write_stdin. Typed lines trigger no hook at all, so a shell started that way
+# runs everything unchecked and unlogged (verified on 0.169.0: `bash --norc -i`
+# was logged, the echo typed into it was not). Starting such a session is
+# therefore an ASK. REPLs (python, node, ...) are not covered.
+
+_SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "ash", "mksh"}
+_SHELL_OPTS_WITH_ARG = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+_SSH_OPTS_WITH_ARG = {"-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L",
+                      "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"}
+_SSH_NO_SESSION = {"-N", "-V", "-G", "-O", "-Q", "-W"}
+_WRAPPERS = {"exec": {"-a"}, "command": set(), "nohup": set(), "time": set(),
+             "nice": {"-n"}, "env": {"-u", "-C", "-S"}, "caffeinate": {"-t", "-w"},
+             "timeout": {"-s", "-k", "--signal", "--kill-after"},
+             "sudo": {"-u", "-g", "-p", "-C", "-U", "-T", "-R", "-h", "-D"},
+             "doas": {"-u", "-C"}}
+_CONTAINER_CLIS = {"docker", "podman", "nerdctl", "kubectl", "oc"}
+_CONTAINER_SUBCMDS = {"exec", "run", "attach", "debug", "start"}
+_SEPARATORS = {";", "&", "&&", "|", "||", "|&", ";;", "(", ")"}
+_ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_MAX_DEPTH = 4
+
+
+def _segments(command: str) -> list[list[str]] | None:
+    """argv per simple command, split on shell operators and newlines."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+    lex.whitespace = " \t\r"
+    lex.whitespace_split = True
+    lex.commenters = ""
+    try:
+        toks = list(lex)
+    except ValueError:
+        return None
+    out, cur = [], []
+    for t in toks:
+        if t in _SEPARATORS or set(t) <= set(";&|()\n"):
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _base(tok: str) -> str:
+    return tok.lstrip("\\").rsplit("/", 1)[-1]
+
+
+def _unwrap(argv: list[str]) -> tuple[list[str], str | None]:
+    """Strip env assignments and exec wrappers. Returns (argv, reason) where a
+    reason means the wrapper itself opens an interactive shell (sudo -i, su)."""
+    for _ in range(_MAX_DEPTH):
+        i = 0
+        while i < len(argv) and _ENV_ASSIGN.match(argv[i]):
+            i += 1
+        argv = argv[i:]
+        if not argv:
+            return argv, None
+        head = _base(argv[0])
+        if head == "su":
+            if not any(a in ("-c", "--command") or a.startswith("--command=")
+                       for a in argv[1:]):
+                return argv, "su opens an interactive shell"
+            return argv, None
+        if head not in _WRAPPERS:
+            return argv, None
+        takes = _WRAPPERS[head]
+        positionals = 1 if head == "timeout" else 0
+        i = 1
+        while i < len(argv):
+            a = argv[i]
+            if a in takes:
+                i += 2
+                continue
+            if a.startswith("-") or (head == "env" and _ENV_ASSIGN.match(a)):
+                if head == "sudo" and a in ("-i", "-s", "--login", "--shell"):
+                    if i + 1 >= len(argv):
+                        return argv, f"sudo {a} opens an interactive root shell"
+                i += 1
+                continue
+            if positionals:
+                positionals -= 1
+                i += 1
+                continue
+            break
+        if i >= len(argv):
+            return [], None  # bare wrapper (`sudo -v`, `env`): nothing to open
+        argv = argv[i:]
+    return argv, None
+
+
+def _shell_interactive(argv: list[str]) -> tuple[bool, str | None]:
+    """(opens a typeable shell?, -c script if any)."""
+    i, forced = 1, False
+    while i < len(argv):
+        a = argv[i]
+        if a == "--":
+            i += 1
+            break
+        if a in _SHELL_OPTS_WITH_ARG:
+            i += 2
+            continue
+        if a.startswith("--"):
+            i += 1
+            continue
+        if a.startswith(("-", "+")) and len(a) > 1:
+            flags = a[1:]
+            if "c" in flags:
+                return False, argv[i + 1] if i + 1 < len(argv) else None
+            if "i" in flags or "s" in flags:
+                forced = True
+            i += 1
+            continue
+        break
+    has_script = i < len(argv)
+    return forced or not has_script, None
+
+
+def _ssh_interactive(argv: list[str]) -> bool:
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a in _SSH_NO_SESSION:
+            return False
+        if a in _SSH_OPTS_WITH_ARG:
+            i += 2
+            continue
+        if a.startswith("-"):
+            if any(f in a[1:] for f in "NVGQ"):
+                return False
+            i += 1
+            continue
+        break
+    return i + 1 >= len(argv)  # a host and nothing after it
+
+
+def _container_interactive(argv: list[str]) -> bool:
+    sub = next((a for a in argv[1:] if not a.startswith("-")), "")
+    if sub not in _CONTAINER_SUBCMDS:
+        return False
+    for a in argv[1:]:
+        if a == "--":
+            break
+        if a in ("--interactive", "--stdin", "--attach") or a.startswith(
+                ("--interactive=true", "--stdin=true")):
+            return True
+        if a.startswith("-") and not a.startswith("--") and "i" in a[1:]:
+            return True
+    return False
+
+
+def interactive_reason(command: str, depth: int = 0) -> str | None:
+    """Why this command opens a session codex could type into, or None."""
+    if depth > _MAX_DEPTH or not command:
+        return None
+    segs = _segments(command)
+    if segs is None:
+        return None
+    for argv in segs:
+        argv, why = _unwrap(argv)
+        if why:
+            return why
+        if not argv:
+            continue
+        head = _base(argv[0])
+        if head in _SHELLS:
+            interactive, script = _shell_interactive(argv)
+            if interactive:
+                return f"{head} without a command opens an interactive shell"
+            if script:
+                nested = interactive_reason(script, depth + 1)
+                if nested:
+                    return nested
+        elif head in ("ssh", "mosh", "autossh") and _ssh_interactive(argv):
+            return f"{head} without a remote command opens an interactive remote shell"
+        elif head in _CONTAINER_CLIS and _container_interactive(argv):
+            return f"{head} with stdin attached opens an interactive session"
+        elif head == "script" and not any(a.startswith("-c") or a == "--command"
+                                          for a in argv[1:]):
+            if len([a for a in argv[1:] if not a.startswith("-")]) <= 1:
+                return "script without a command opens an interactive shell"
+        elif head == "tmux":
+            sub = [a for a in argv[1:] if not a.startswith("-")]
+            if any(a in ("send-keys", "send", "paste-buffer", "pasteb") for a in sub):
+                return "tmux send-keys types into a session no hook sees"
+            if not sub or sub[0] in ("new", "new-session", "attach", "attach-session", "a"):
+                return "tmux starts an interactive terminal session"
+        elif head in ("screen", "byobu", "zellij"):
+            if "stuff" in argv[1:]:
+                return f"{head} -X stuff types into a session no hook sees"
+            if not any(a in ("-ls", "-list", "ls", "list-sessions") for a in argv[1:]):
+                return f"{head} starts an interactive terminal session"
+        elif head in ("expect", "unbuffer"):
+            return f"{head} drives an interactive program no hook sees"
+    return None
+
+
 def main() -> None:
     session_id = ""
     command = ""
@@ -243,6 +451,14 @@ def main() -> None:
             _audit("deny", f"codex adapter: engine error ({type(exc).__name__})",
                    command, session_id)
             _emit("deny", f"codex adapter: engine error ({type(exc).__name__})")
+
+        # A typeable session (write_stdin) escapes every later hook: ASK.
+        if decision != "deny":
+            why = interactive_reason(command)
+            if why:
+                why = f"{why}; lines typed into it via write_stdin bypass every hook"
+                reason = f"{reason}; {why}" if decision == "ask" and reason else why
+                decision = "ask"
 
         if decision == "deny":
             _audit("deny", reason, command, session_id)

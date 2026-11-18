@@ -323,3 +323,74 @@ def test_missing_engine_fails_closed(monkeypatch, capsys):
     assert exc.value.code == 0
     assert env["permissionDecision"] == "deny"
     assert "engine error" in env["permissionDecisionReason"]
+
+
+# ── interactive sessions (write_stdin bypass) ────────────────────────────────
+
+_INTERACTIVE = [
+    "bash", "bash -i", "bash --norc -i", "zsh -l", "/bin/sh", "exec zsh",
+    "env FOO=1 bash", "cd x && bash -i", "echo hi\nbash", "sh -c 'bash -i'",
+    "bash -s", "nohup bash", "ssh host", "ssh -p 22 -i key user@host",
+    "sudo -i", "sudo -s", "sudo bash", "su", "su - root",
+    "docker exec -it c sh", "kubectl exec -it pod -- sh", "docker run -i alpine",
+    "tmux", "tmux new -s x", "tmux send-keys -t x 'rm -rf a' Enter",
+    "screen", "screen -S x -X stuff 'ls'", "script", "script out.log",
+    "expect x.exp",
+]
+_ONE_SHOT = [
+    "bash script.sh", "bash -c 'echo hi'", "bash -lc 'ls'", "sh -e ./run.sh",
+    "zsh -n file.zsh", "ssh host ls", "ssh -N -L 1:a:2 host", "ssh -O check host",
+    "sudo -v", "git status", "echo bash", "echo 'a; bash'", "grep bash file",
+    "docker exec c ls", "kubectl exec pod -- ls", "docker ps", "tmux ls",
+    "tmux list-sessions", "screen -ls", "script -q out.log ls", "python3 x.py",
+    "env",
+]
+
+
+@pytest.mark.parametrize("cmd", _INTERACTIVE)
+def test_interactive_session_detected(cmd):
+    assert adapter.interactive_reason(cmd)
+
+
+@pytest.mark.parametrize("cmd", _ONE_SHOT)
+def test_one_shot_command_not_interactive(cmd):
+    assert adapter.interactive_reason(cmd) is None
+
+
+def test_interactive_shell_goes_to_prompt_gate(monkeypatch, capsys, gate_home):
+    eng = FakeEngine("allow", "")
+    out, code = run_adapter(monkeypatch, stdin("bash --norc -i"), eng)
+    env = envelope_of(out)
+    assert code == 0 and env["permissionDecision"] == "allow"
+    new = env["updatedInput"]["command"]
+    assert new.startswith(f"{gate_home} 'safe_command ASK: bash without a command")
+    assert "write_stdin" in new
+    assert base64.b64decode(shlex.split(new)[3]).decode() == "bash --norc -i"
+    assert eng.audits[0][0] == "ask"
+
+
+def test_interactive_shell_without_gate_is_denied(monkeypatch, capsys):
+    monkeypatch.setattr(adapter, "gate_ready", lambda: False)
+    out, _ = run_adapter(monkeypatch, stdin("ssh host"), FakeEngine("allow", ""))
+    env = envelope_of(out)
+    assert env["permissionDecision"] == "deny"
+    assert "ASK-demotion" in env["permissionDecisionReason"]
+    assert "! ssh host" in env["permissionDecisionReason"]
+
+
+def test_interactive_keeps_engine_ask_reason(monkeypatch, capsys, gate_home):
+    out, _ = run_adapter(monkeypatch, stdin("sudo -i"), FakeEngine("ask", "sudo"))
+    new = envelope_of(out)["updatedInput"]["command"]
+    assert shlex.split(new)[1].startswith("safe_command ASK: sudo; sudo -i opens")
+
+
+def test_engine_deny_beats_interactive(monkeypatch, capsys, gate_home):
+    out, _ = run_adapter(monkeypatch, stdin("bash -i"), FakeEngine("deny", "nope"))
+    env = envelope_of(out)
+    assert env["permissionDecision"] == "deny"
+    assert "nope" in env["permissionDecisionReason"]
+
+
+def test_allow_explicit_interactive_still_asks(monkeypatch, capsys, gate_home):
+    out, _ = run_adapter(monkeypatch, stdin("zsh"), FakeEngine("allow-explicit", "ok"))
+    assert envelope_of(out)["updatedInput"]["command"].startswith(str(gate_home))

@@ -204,7 +204,11 @@ fail closed. The gate refuses a display that does not match the payload. No
 match. Without the gate or the rule, ASK is demoted to deny with an
 `ASK-demotion (codex, …)` prefix and a `!`-ready command. `apply_patch` on a
 uchg-locked file or a guard file (rules, hooks.json, adapter, gate, engine) is
-denied. On opencode, ASK keeps its own label (`[ai-harness] ASK: …`).
+denied. A command that opens a session codex could type into with
+`write_stdin` (a shell with no command, `ssh` with no remote command,
+`docker`/`kubectl exec -i`, `su`, `sudo -i`, tmux/screen, `script`, `expect`) is
+an ASK too: lines typed into it reach no hook. REPLs are not covered.
+On opencode, ASK keeps its own label (`[ai-harness] ASK: …`).
 
 opencode 2.x plugin API (the machine runs 2.0.20; 1.x plugins no longer
 load): a plugin is a module with `export default { id, setup(ctx) }` (the
